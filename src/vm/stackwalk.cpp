@@ -367,6 +367,7 @@ inline void CrawlFrame::GotoNextFrame()
     if (pRetDomain != NULL)
         pAppDomain = pRetDomain;
     pFrame = pFrame->Next();
+
     
     if (pFrame != FRAME_TOP)
     {
@@ -1233,7 +1234,7 @@ BOOL StackFrameIterator::Init(Thread *    pThread,
     }
     INDEBUG(m_pRealStartFrame = m_crawl.pFrame);
 
-    if (m_crawl.pFrame != FRAME_TOP)
+    if (m_crawl.pFrame != FRAME_TOP && !(m_flags & SKIP_GSCOOKIE_CHECK))
     {
         m_crawl.SetCurGSCookie(Frame::SafeGetGSCookiePtr(m_crawl.pFrame));
     }
@@ -1326,7 +1327,7 @@ BOOL StackFrameIterator::ResetRegDisp(PREGDISPLAY pRegDisp,
         _ASSERTE(m_crawl.pFrame != NULL);
     }
 
-    if (m_crawl.pFrame != FRAME_TOP)
+    if (m_crawl.pFrame != FRAME_TOP && !(m_flags & SKIP_GSCOOKIE_CHECK))
     {
         m_crawl.SetCurGSCookie(Frame::SafeGetGSCookiePtr(m_crawl.pFrame));
     }
@@ -3128,18 +3129,21 @@ void StackFrameIterator::PreProcessingForManagedFrames(void)
     }
 #endif // !_TARGET_X86_
 
+
 #if !defined(DACCESS_COMPILE)
-    m_pCachedGSCookie = (GSCookie*)m_crawl.GetCodeManager()->GetGSCookieAddr(
-                                                        m_crawl.pRD,
-                                                        &m_crawl.codeInfo,
-                                                        &m_crawl.codeManState);
+        m_pCachedGSCookie = (GSCookie*)m_crawl.GetCodeManager()->GetGSCookieAddr(
+                                                                                 m_crawl.pRD,
+                                                                                 &m_crawl.codeInfo,
+                                                                                 &m_crawl.codeManState);
 #endif // !DACCESS_COMPILE
-
-    if (m_pCachedGSCookie)
+    if (!(m_flags & SKIP_GSCOOKIE_CHECK))
     {
-        m_crawl.SetCurGSCookie(m_pCachedGSCookie);
+        if (m_pCachedGSCookie)
+        {
+            m_crawl.SetCurGSCookie(m_pCachedGSCookie);
+        }
     }
-
+    
     INDEBUG(m_crawl.pThread->DebugLogStackWalkInfo(&m_crawl, "CONSIDER", m_uFramesProcessed));
 
 #if defined(_DEBUG) && defined(_TARGET_X86_) && !defined(DACCESS_COMPILE)

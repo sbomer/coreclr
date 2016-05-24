@@ -3593,6 +3593,20 @@ public:
     // Refer to StackFrameIterator::Filter for detailed comments on this flag.
     #define GC_FUNCLET_REFERENCE_REPORTING 0x8000
 
+    // The stackwalker usually checks GS cookies on the stack as it
+    // goes. However, the JIT assumes that no cookie checks will be
+    // done in the epilog, and may report valid cookie ranges
+    // including the epilog. There are circumstances under which the
+    // debugger requests a stackwalk in the epilog and tries to check
+    // an invalid cookie. This flag allows debugger stack walks to
+    // skip the check.
+
+    // Note that the flag is intended to be used for a workaround by
+    // the debugger. The stackwalker will still execute some
+    // cookie-related code paths, and the CrawlFrame may still track a
+    // GS cookie in some circumstances.
+    #define SKIP_GSCOOKIE_CHECK 0x10000
+
     StackWalkAction StackWalkFramesEx(
                         PREGDISPLAY pRD,        // virtual register set at crawl start
                         PSTACKWALKFRAMESCALLBACK pCallback,
