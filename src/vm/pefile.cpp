@@ -1291,7 +1291,7 @@ void PEFile::ConvertMetadataToRWForEnC()
     CONTRACTL_END;
 
     // This should only ever be called on EnC capable files.
-    _ASSERTE(Module::IsEditAndContinueCapable(this));
+    // One can check this using Module::IsEditANdContinueCapable().
 
     // This should only be called if we're debugging, stopped, and on the helper thread.
     _ASSERTE(CORDebuggerAttached());

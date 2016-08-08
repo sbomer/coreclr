@@ -2037,22 +2037,7 @@ protected:
 
     BOOL IsSystem() { WRAPPER_NO_CONTRACT; SUPPORTS_DAC; return m_file->IsSystem(); }
 
-    static BOOL IsEditAndContinueCapable(PEFile *file) 
-    { 
-        CONTRACTL
-        {
-            NOTHROW;
-            GC_NOTRIGGER;
-            SO_TOLERANT;
-            MODE_ANY;
-            SUPPORTS_DAC;
-        }
-        CONTRACTL_END;
-
-
-        // Some modules are never EnC-capable
-        return ! (file->IsSystem() || file->IsResource() || file->HasNativeImage() || file->IsDynamic());
-    }
+    static BOOL IsEditAndContinueCapable(Assembly *pAssembly, PEFile *file);
 
     void EnableEditAndContinue()
     {
