@@ -34,3 +34,4 @@
 #include "bitvec.h"
 #include "inline.h"
 #include "objectalloc.h"
+#include "tarjanscc.h"
