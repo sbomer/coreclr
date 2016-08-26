@@ -621,6 +621,24 @@ Compiler::fgWalkResult Compiler::fgWalkTreePreRec(GenTreePtr* pTree, fgWalkData*
 
     genTreeOps oper;
     unsigned   kind;
+    unsigned int numNodesVisited      = 0;
+
+#ifdef DEBUG
+    unsigned int oldParentStackHeight = 0;
+    GenTreePtr   oldParentStackTop    = nullptr;
+
+    if (computeStack)
+    {
+        oldParentStackHeight = fgWalkData->parentStack->Height();
+
+        if (oldParentStackHeight > 0)
+        {
+            oldParentStackTop = fgWalkData->parentStack->Top();
+        }
+
+        assert(oldParentStackTop == fgWalkData->parent);
+    }
+#endif // DEBUG
 
     do
     {
@@ -632,6 +650,7 @@ Compiler::fgWalkResult Compiler::fgWalkTreePreRec(GenTreePtr* pTree, fgWalkData*
         if (computeStack)
         {
             fgWalkData->parentStack->Push(tree);
+            ++numNodesVisited;
         }
 
         /* Visit this node */
@@ -892,7 +911,23 @@ Compiler::fgWalkResult Compiler::fgWalkTreePreRec(GenTreePtr* pTree, fgWalkData*
 
     if (computeStack)
     {
-        fgWalkData->parentStack->Pop();
+        for (; numNodesVisited > 0; --numNodesVisited)
+        {
+            fgWalkData->parentStack->Pop();
+        }
+#ifdef DEBUG
+
+        unsigned int newParentStackHeight = fgWalkData->parentStack->Height();
+        GenTreePtr   newParentStackTop    = nullptr;
+
+        if (newParentStackHeight > 0)
+        {
+            newParentStackTop = fgWalkData->parentStack->Top();
+        }
+
+        assert(newParentStackHeight == oldParentStackHeight);
+        assert(newParentStackTop    == oldParentStackTop);
+#endif // DEBUG
     }
 
     if (result != WALK_ABORT)
@@ -902,6 +937,7 @@ Compiler::fgWalkResult Compiler::fgWalkTreePreRec(GenTreePtr* pTree, fgWalkData*
         //
         fgWalkData->parent = currentParent;
     }
+
     return result;
 }
 
