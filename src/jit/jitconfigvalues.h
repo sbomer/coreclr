@@ -249,6 +249,7 @@ CONFIG_STRING(JitInlineReplayFile, W("JitInlineReplayFile"))
 
 CONFIG_INTEGER(JitInlinePolicyLegacy, W("JitInlinePolicyLegacy"), 0)
 CONFIG_INTEGER(JitInlinePolicyModel, W("JitInlinePolicyModel"), 0)
+CONFIG_INTEGER(JitObjectStackAllocation, W("JitObjectStackAllocation"), 0)
 
 #undef CONFIG_INTEGER
 #undef CONFIG_STRING
