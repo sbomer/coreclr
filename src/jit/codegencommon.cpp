@@ -3698,6 +3698,11 @@ void CodeGen::genGCWriteBarrier(GenTreePtr tgt, GCInfo::WriteBarrierForm wbf)
 #endif
         if (tgt->gtOper != GT_CLS_VAR)
     {
+        if (compiler->optMethodFlags & OMF_HAS_OBJSTACKALLOC)
+        {
+            helper = CORINFO_HELP_CHECKED_ASSIGN_REF;
+        }
+
         if (wbf != GCInfo::WBF_BarrierUnchecked) // This overrides the tests below.
         {
             if (tgt->gtFlags & GTF_IND_TGTANYWHERE)

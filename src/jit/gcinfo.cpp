@@ -666,6 +666,11 @@ GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTreePtr 
 {
     GCInfo::WriteBarrierForm result = GCInfo::WBF_BarrierUnknown; // Default case, we have no information.
 
+    if (compiler->optMethodFlags & OMF_HAS_OBJSTACKALLOC)
+    {
+        return GCInfo::WBF_BarrierChecked;
+    }
+
     // If we store through an int to a GC_REF field, we'll assume that needs to use a checked barriers.
     if (tgtAddr->TypeGet() == TYP_I_IMPL)
     {
