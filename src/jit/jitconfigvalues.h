@@ -265,6 +265,7 @@ CONFIG_STRING(JitInlineReplayFile, W("JitInlineReplayFile"))
 
 CONFIG_INTEGER(JitInlinePolicyLegacy, W("JitInlinePolicyLegacy"), 0)
 CONFIG_INTEGER(JitInlinePolicyModel, W("JitInlinePolicyModel"), 0)
+CONFIG_INTEGER(JitObjectStackAllocation, W("JitObjectStackAllocation"), 0)
 
 CONFIG_INTEGER(JitEECallTimingInfo, W("JitEECallTimingInfo"), 0)
 
