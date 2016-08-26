@@ -2687,6 +2687,7 @@ inline Compiler::fgWalkResult Compiler::fgWalkTreePre(
         GenTreeStack parentStack(this);
         walkData.parentStack = &parentStack;
         result               = fgWalkTreePreRec<true>(pTree, &walkData);
+        assert(parentStack.Height() == 0);
     }
     else
     {
