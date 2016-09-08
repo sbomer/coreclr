@@ -4910,6 +4910,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
         /* Remember that this basic block contains 'new' of an array */
         compCurBB->bbFlags |= BBF_HAS_NEWOBJ;
+        optMethodFlags     |= OMF_HAS_NEWOBJ;
 
         GenTreePtr asg = gtNewTempAssign(impBoxTemp, op1);
 
