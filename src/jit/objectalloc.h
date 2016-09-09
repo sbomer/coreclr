@@ -23,8 +23,11 @@ class ObjectAllocator final : public Phase
 {
     //===============================================================================
     // Data members
-    bool m_IsObjectStackAllocationEnabled;
-    bool m_AnalysisDone;
+    bool         m_IsObjectStackAllocationEnabled;
+    bool         m_AnalysisDone;
+    BitVecTraits m_bitVecTraits;
+    BitVec       m_EscapingPointers;
+
     //===============================================================================
     // Methods
 public:
@@ -36,14 +39,21 @@ protected:
     virtual void DoPhase() override;
 
 private:
-    bool CanAllocateLclVarOnStack(unsigned int lclNum) const;
-    void       DoAnalysis();
+    bool CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd);
+    bool CanLclVarEscape(unsigned int lclNum);
+    void DoAnalysis();
+    void BuildConnGraph(BitVec** pConnGraphPointees);
+    static void ComputeReachableNodes(BitVecTraits* bitVecTraits, BitVec* adjacentNodes, BitVec& reachableNodes);
     void       MorphAllocObjNodes();
     GenTreePtr MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj);
     GenTreePtr MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj, BasicBlock* block, GenTreeStmt* stmt);
+    static bool CanLclVarEscapeViaParentStack(ArrayStack<GenTreePtr>* parentStack, Compiler* compiler);
+    static Compiler::fgWalkResult BuildConnGraphVisitor(GenTreePtr* pTree, Compiler::fgWalkData* data);
+    struct BuildConnGraphVisitorCallbackData;
 #ifdef DEBUG
     static Compiler::fgWalkResult AssertWhenAllocObjFoundVisitor(GenTreePtr* pTree, Compiler::fgWalkData* data);
 #endif // DEBUG
+    static const unsigned int s_StackAllocMaxSize = 0x2000U;
 };
 
 //===============================================================================
@@ -52,7 +62,9 @@ inline ObjectAllocator::ObjectAllocator(Compiler* comp)
     : Phase(comp, "Allocate Objects", PHASE_ALLOCATE_OBJECTS)
     , m_IsObjectStackAllocationEnabled(false)
     , m_AnalysisDone(false)
+    , m_bitVecTraits(comp->lvaCount, comp)
 {
+    m_EscapingPointers = BitVecOps::UninitVal();
 }
 
 inline bool ObjectAllocator::IsObjectStackAllocationEnabled() const
@@ -66,15 +78,26 @@ inline void ObjectAllocator::EnableObjectStackAllocation()
 }
 
 //------------------------------------------------------------------------
-// CanAllocateLclVarOnStack: Returns true iff local variable can not
-//                           potentially escape from the method and
-//                           can be allocated on the stack.
-inline bool ObjectAllocator::CanAllocateLclVarOnStack(unsigned int lclNum) const
+// CanAllocateLclVarOnStack: Returns true iff local variable can be
+//                           allocated on the stack.
+inline bool ObjectAllocator::CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(m_AnalysisDone);
-    // TODO-ObjectStackAllocation
-    NYI("CanAllocateLclVarOnStack");
-    return false;
+
+    const BOOL hasFinalizer      = comp->info.compCompHnd->classHasFinalizer(clsHnd);
+    const BOOL isValueClass      = comp->info.compCompHnd->isValueClass(clsHnd);
+    const unsigned int classSize = isValueClass ? comp->info.compCompHnd->getClassSize(clsHnd) : comp->info.compCompHnd->getHeapClassSize(clsHnd);
+
+    return !CanLclVarEscape(lclNum) && !hasFinalizer && classSize <= s_StackAllocMaxSize;
+}
+
+//------------------------------------------------------------------------
+// CanLclVarEscape:          Returns true iff local variable can
+//                           potentially escape from the method
+inline bool ObjectAllocator::CanLclVarEscape(unsigned int lclNum)
+{
+    assert(m_AnalysisDone);
+    return BitVecOps::IsMember(&m_bitVecTraits, m_EscapingPointers, lclNum);
 }
 
 //===============================================================================

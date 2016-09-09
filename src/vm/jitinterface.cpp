@@ -2108,6 +2108,64 @@ CEEInfo::getClassSize(
     return result;
 }
 
+unsigned
+CEEInfo::getHeapClassSize(
+    CORINFO_CLASS_HANDLE clsHnd)
+{
+    CONTRACTL{
+        SO_TOLERANT;
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    unsigned result = 0;
+
+    JIT_TO_EE_TRANSITION_LEAF();
+
+    TypeHandle VMClsHnd(clsHnd);
+    MethodTable* pMT = VMClsHnd.GetMethodTable();
+
+    _ASSERTE(pMT);
+    _ASSERTE(!pMT->IsValueType());
+
+    result = pMT->GetBaseSize();
+
+    EE_TO_JIT_TRANSITION_LEAF();
+
+    return result;
+}
+
+BOOL CEEInfo::classHasFinalizer(CORINFO_CLASS_HANDLE clsHnd)
+{
+    CONTRACTL{
+        SO_TOLERANT;
+    NOTHROW;
+    GC_NOTRIGGER;
+    MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    BOOL result;
+
+    JIT_TO_EE_TRANSITION_LEAF();
+
+    TypeHandle VMClsHnd(clsHnd);
+    MethodTable* pMT = VMClsHnd.GetMethodTable();
+
+    _ASSERTE(pMT);
+
+    result = pMT->HasFinalizer();
+
+    EE_TO_JIT_TRANSITION_LEAF();
+
+    return result;
+}
+
+unsigned CEEInfo::getObjHeaderSize()
+{
+    return sizeof(ObjHeader);
+}
+
 unsigned CEEInfo::getClassAlignmentRequirement(CORINFO_CLASS_HANDLE type, BOOL fDoubleAlignHint)
 {
     CONTRACTL {
@@ -2329,13 +2387,16 @@ unsigned CEEInfo::getClassGClayout (CORINFO_CLASS_HANDLE clsHnd, BYTE* gcPtrs)
     }
     else
     {
-        _ASSERTE(pMT->IsValueType());
+        //_ASSERTE(pMT->IsValueType());
         _ASSERTE(sizeof(BYTE) == 1);
+
+        BOOL isValueClass = pMT->IsValueType();
+		unsigned int size = isValueClass ? VMClsHnd.GetSize() : pMT->GetBaseSize();
 
         // assume no GC pointers at first
         result = 0;
         memset(gcPtrs, TYPE_GC_NONE,
-               (VMClsHnd.GetSize() + sizeof(void*) -1)/ sizeof(void*));
+               (size + sizeof(void*) -1)/ sizeof(void*));
 
         // walk the GC descriptors, turning on the correct bits
         if (pMT->ContainsPointers())

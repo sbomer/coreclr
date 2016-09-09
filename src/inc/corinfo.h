@@ -2355,6 +2355,18 @@ public:
             CORINFO_CLASS_HANDLE        cls
             ) = 0;
 
+    // return the number of bytes needed by an instance of the class allocated on the heap
+    virtual unsigned getHeapClassSize(
+        CORINFO_CLASS_HANDLE        cls
+    ) = 0;
+
+    virtual BOOL classHasFinalizer(
+        CORINFO_CLASS_HANDLE cls
+    ) = 0;
+
+    virtual unsigned getObjHeaderSize(
+    ) = 0;
+
     virtual unsigned getClassAlignmentRequirement (
             CORINFO_CLASS_HANDLE        cls,
             BOOL                        fDoubleAlignHint = FALSE

@@ -3332,6 +3332,52 @@ unsigned ZapInfo::getClassSize(CORINFO_CLASS_HANDLE cls)
     return size;
 }
 
+unsigned ZapInfo::getHeapClassSize(CORINFO_CLASS_HANDLE cls)
+{
+    DWORD size = m_pEEJitInfo->getHeapClassSize(cls);
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (IsReadyToRunCompilation())
+    {
+        if (m_pEECompileInfo->NeedsTypeLayoutCheck(cls))
+        {
+            ZapImport * pImport = m_pImage->GetImportTable()->GetCheckTypeLayoutImport(cls);
+            AppendImport(pImport);
+
+            m_ClassLoadTable.Load(cls, TRUE);
+        }
+    }
+#endif
+
+    return size;
+}
+
+BOOL ZapInfo::classHasFinalizer(CORINFO_CLASS_HANDLE cls)
+{
+    BOOL hasFinalizer = m_pEEJitInfo->classHasFinalizer(cls);
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (IsReadyToRunCompilation())
+    {
+        if (m_pEECompileInfo->NeedsTypeLayoutCheck(cls))
+        {
+            ZapImport * pImport = m_pImage->GetImportTable()->GetCheckTypeLayoutImport(cls);
+            AppendImport(pImport);
+
+            m_ClassLoadTable.Load(cls, TRUE);
+        }
+    }
+#endif
+
+    return hasFinalizer;
+}
+
+unsigned ZapInfo::getObjHeaderSize()
+{
+    DWORD size = m_pEEJitInfo->getObjHeaderSize();
+    return size;
+}
+
 unsigned ZapInfo::getClassAlignmentRequirement(CORINFO_CLASS_HANDLE cls, BOOL fDoubleAlignHint)
 {
     return m_pEEJitInfo->getClassAlignmentRequirement(cls, fDoubleAlignHint);

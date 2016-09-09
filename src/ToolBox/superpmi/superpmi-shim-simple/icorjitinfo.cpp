@@ -492,6 +492,30 @@ unsigned interceptor_ICJI::getClassSize (
     return original_ICorJitInfo->getClassSize(cls);
 }
 
+// return the number of bytes needed by an instance of the class allocated on the heap
+unsigned interceptor_ICJI::getHeapClassSize(
+    CORINFO_CLASS_HANDLE        cls
+)
+{
+    //TODO: remove stub
+    return 0;
+}
+
+BOOL interceptor_ICJI::classHasFinalizer(
+    CORINFO_CLASS_HANDLE cls
+)
+{
+    //TODO: remove stub
+    return FALSE;
+}
+
+unsigned interceptor_ICJI::getObjHeaderSize(
+)
+{
+    //TODO: remove stub
+    return 0;
+}
+
 unsigned interceptor_ICJI::getClassAlignmentRequirement (
             CORINFO_CLASS_HANDLE        cls,
             BOOL                        fDoubleAlignHint

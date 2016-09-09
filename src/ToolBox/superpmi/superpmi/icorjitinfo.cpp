@@ -596,6 +596,30 @@ unsigned MyICJI::getClassSize (
     return jitInstance->mc->repGetClassSize(cls);
 }
 
+// return the number of bytes needed by an instance of the class allocated on the heap
+unsigned MyICJI::getHeapClassSize(
+            CORINFO_CLASS_HANDLE        cls
+            )
+{
+    //TODO: remove stub
+    return 0;
+}
+
+BOOL MyICJI::classHasFinalizer(
+            CORINFO_CLASS_HANDLE cls
+            )
+{
+    //TODO: remove stub
+    return FALSE;
+}
+
+unsigned MyICJI::getObjHeaderSize(
+)
+{
+    //TODO: remove stub
+    return 0;
+}
+
 unsigned MyICJI::getClassAlignmentRequirement (
             CORINFO_CLASS_HANDLE        cls,
             BOOL                        fDoubleAlignHint
