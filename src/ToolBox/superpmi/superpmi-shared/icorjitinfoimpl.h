@@ -373,6 +373,18 @@ public:
             CORINFO_CLASS_HANDLE        cls
             );
 
+    // return the number of bytes needed by an instance of the class allocated on the heap
+    unsigned getHeapClassSize(
+        CORINFO_CLASS_HANDLE        cls
+    );
+
+    BOOL classHasFinalizer(
+        CORINFO_CLASS_HANDLE cls
+    );
+
+    unsigned getObjHeaderSize(
+    );
+
     unsigned getClassAlignmentRequirement (
             CORINFO_CLASS_HANDLE        cls,
             BOOL                        fDoubleAlignHint = FALSE

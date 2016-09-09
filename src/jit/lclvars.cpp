@@ -1985,7 +1985,18 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
     }
     if (varDsc->lvExactSize == 0)
     {
-        varDsc->lvExactSize = info.compCompHnd->getClassSize(typeHnd);
+        BOOL isValueClass = info.compCompHnd->isValueClass(typeHnd);
+
+        if (isValueClass)
+        {
+            varDsc->lvExactSize = info.compCompHnd->getClassSize(typeHnd);
+            varDsc->lvGcLayoutOffset = 0;
+        }
+        else
+        {
+            varDsc->lvExactSize = info.compCompHnd->getHeapClassSize(typeHnd) + info.compCompHnd->getObjHeaderSize();
+            varDsc->lvGcLayoutOffset = info.compCompHnd->getObjHeaderSize() + sizeof(LPVOID);
+        }
 
         size_t lvSize = varDsc->lvSize();
         assert((lvSize % sizeof(void*)) ==
@@ -1993,7 +2004,15 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         varDsc->lvGcLayout = (BYTE*)compGetMemA((lvSize / sizeof(void*)) * sizeof(BYTE), CMK_LvaTable);
         unsigned  numGCVars;
         var_types simdBaseType = TYP_UNKNOWN;
-        varDsc->lvType         = impNormStructType(typeHnd, varDsc->lvGcLayout, &numGCVars, &simdBaseType);
+
+        if (isValueClass)
+        {
+            varDsc->lvType = impNormStructType(typeHnd, varDsc->lvGcLayout, &numGCVars, &simdBaseType);
+        }
+        else
+        {
+            numGCVars = info.compCompHnd->getClassGClayout(typeHnd, varDsc->lvGcLayout);
+        }
 
         // We only save the count of GC vars in a struct up to 7.
         if (numGCVars >= 8)
@@ -2001,6 +2020,9 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
             numGCVars = 7;
         }
         varDsc->lvStructGcCount = numGCVars;
+
+        if (isValueClass)
+        {
 #if FEATURE_SIMD
         if (simdBaseType != TYP_UNKNOWN)
         {
@@ -2028,6 +2050,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
             }
         }
 #endif // FEATURE_HFA
+        }
     }
     else
     {
