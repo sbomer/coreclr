@@ -516,6 +516,8 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTreePtr>* pare
                 case GT_IND:
                     canLclVarEscapeViaParentStack = false; // Scenario (2)
                     break;
+                default:
+                    break;
                 }
             }
             break;
@@ -534,6 +536,8 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTreePtr>* pare
                     }
                 }
             }
+            break;
+        default:
             break;
         }
     }
