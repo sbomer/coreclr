@@ -250,6 +250,7 @@ void ObjectAllocator::MorphAllocObjNodes()
                 }
 
                 comp->fgMorphBlockStmt(block, stmt DEBUGARG("MorphAllocObjNodes"));
+                // comp->fgMorphBlockStmt(block, stmt DEBUGARG("MorphAllocObjNodes"));
 
                 // Propagate flags of op2 to its parent.
                 stmtExpr->gtOp.gtOp2 = op2;
