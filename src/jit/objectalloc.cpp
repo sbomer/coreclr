@@ -333,12 +333,11 @@ GenTreePtr ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* all
 
     tree = comp->gtNewLclvNode(lclNum, TYP_STRUCT);
     tree = comp->gtNewOperNode(GT_ADDR, TYP_BYREF, tree);
-    tree = comp->gtNewBlkOpNode(
-        GT_INITBLK,
-        tree,
-        comp->gtNewIconNode(0),
-        comp->gtNewIconNode(structSize),
-        true);
+    tree = comp->gtNewBlkOpNode(comp->gtNewLclvNode(lclNum, TYP_STRUCT), // Dest
+                                comp->gtNewIconNode(0), // Value
+                                structSize, // Size
+                                true, // isVolatile
+                                false); // not copyBlock
 
     tree = comp->gtNewStmt(tree);
 
@@ -520,6 +519,8 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTreePtr>* pare
                 case GT_IND:
                     canLclVarEscapeViaParentStack = false; // Scenario (2)
                     break;
+                default:
+                    break;
                 }
             }
             break;
@@ -538,6 +539,8 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTreePtr>* pare
                     }
                 }
             }
+            break;
+        default:
             break;
         }
     }

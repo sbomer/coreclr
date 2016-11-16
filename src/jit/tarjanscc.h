@@ -49,8 +49,8 @@ private:
 inline TarjanStronglyConnectedComponents::TarjanStronglyConnectedComponents(Compiler* compiler)
     : m_Compiler(compiler), m_InvalidNumber(0), m_BitVecTraits(compiler->fgBBcount + 1, compiler),
       m_Stack(compiler, compiler->fgBBcount),
-      m_Number(compiler->fgBBcount + 1, m_InvalidNumber, compiler->getAllocator()),
-      m_LowLink(compiler->fgBBcount + 1, m_InvalidNumber, compiler->getAllocator())
+      m_LowLink((size_t)compiler->fgBBcount + 1, m_InvalidNumber, compiler->getAllocator()),
+      m_Number((size_t)compiler->fgBBcount + 1, m_InvalidNumber, compiler->getAllocator())
 {
     m_IsAnalysisDone       = false;
     m_IsOnStack            = BitVecOps::MakeEmpty(&m_BitVecTraits);
