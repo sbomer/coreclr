@@ -11,6 +11,12 @@ import sys
 import os
 import subprocess
 
+def executableName(name, platform):
+    if platform == "Windows_NT":
+        return name + ".exe"
+    else:
+        return name
+
 def locate_dotnet(coreclrDir, platform):
 
 #    We may be able to use the Tools cli once DotnetCLIVersion.txt is updated.
@@ -20,12 +26,7 @@ def locate_dotnet(coreclrDir, platform):
     if not os.path.isdir(toolsPath):
         sys.exit("No Tools directory. Run init-tools first.")
 
-    if platform == "Linux" || platform == "OSX":
-        dotnetName = "dotnet"
-    elif platform == "Windows_NT":
-        dotnetName = "dotnet.exe"
-
-    dotnetPath = os.path.join(toolsPath, "dotnetcli", dotnetName)
+    dotnetPath = os.path.join(toolsPath, "dotnetcli", executableName("dotnet", platform))
 
 #    os = "Linux"
 #    
@@ -67,16 +68,20 @@ def clone_jitutils(jitdiffDir):
         sys.exit("failed to clone " + jitutilsRepoUrl)
     return jitutilsRepoPath
 
-def build_jitutils(dotnetPath, jitutilsPath):
+def build_jitutils(dotnetPath, jitutilsPath, platform):
     jitutilsBinDir = os.path.abspath(os.path.join(jitutilsPath, "bin"))
-    cijobs = os.path.join(jitutilsBinDir, "cijobs")
-    jitdiff = os.path.join(jitutilsBinDir, "jit-diff")
-    jitdasm = os.path.join(jitutilsBinDir, "jit-dasm")
-    jitanalyze = os.path.join(jitutilsBinDir, "jit-analyze")
+    cijobs = os.path.join(jitutilsBinDir, executableName("cijobs", platform))
+    jitdiff = os.path.join(jitutilsBinDir, executableName("jit-diff", platform))
+    jitdasm = os.path.join(jitutilsBinDir, executableName("jit-dasm", platform))
+    jitanalyze = os.path.join(jitutilsBinDir, executableName("jit-analyze", platform))
+
     if os.path.isfile(cijobs) and os.path.isfile(jitdiff) and os.path.isfile(jitdasm) and os.path.isfile(jitanalyze):
-        print(jitutilsBinDir + " already contains cijobs, jit-diff, and jit-dasm. Assuming jitutils was already built.")
+        print(jitutilsBinDir + " already contains cijobs, jit-diff, jit-dasm, and jit-analyze. Assuming jitutils was already built.")
         return (cijobs, jitdiff, jitdasm)
-    rid = "linux-x64"
+    if platform == "Linux":
+        rid = "linux-x64"
+    elif platform == "Windows_NT":
+        rid = "win8-x64"
     ret = subprocess.call([dotnetPath, "restore", "-r", rid], cwd=jitutilsPath)
     if ret != 0:
         sys.exit("failed to restore " + jitutilsPath)
@@ -90,10 +95,11 @@ def build_jitutils(dotnetPath, jitutilsPath):
     # however, these aren't executable on linux, so we still need a workaround:
     # TODO: if os is linux:
     # TODO: remove this workaround once coreclr uses a recent enough cli (issue was fixed in https://github.com/dotnet/sdk/issues/1331)
-    os.chmod(cijobs, 0751)
-    os.chmod(jitdiff, 0751)
-    os.chmod(jitdasm, 0751)
-    os.chmod(jitanalyze, 0751)
+    if platform == "Linux" or platform == "OSX":
+        os.chmod(cijobs, 751)
+        os.chmod(jitdiff, 751)
+        os.chmod(jitdasm, 751)
+        os.chmod(jitanalyze, 751)
         
     return (cijobs, jitdiff, jitdasm)
 
@@ -247,7 +253,8 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsT
     if not os.path.isfile(crossgen):
         sys.exit("crossgen executable does not exist in " + crossgen)
 
-    os.chmod(crossgen, 0751)
+    if platform == "Linux" or platform == "OSX":
+        os.chmod(crossgen, 751)
     # jit-diff takas as input: directories containing the base and diff jits, a core_root containing the platform assemblies, and a crossgen exe.
 
 
@@ -274,21 +281,28 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsT
     return ret
 
 
-def getJenkinsJobName(platform, arch, config):
-    assert(platform == "Linux")
+def getJenkinsJobName(platform, arch, config, isPr = False):
+    if platform == "Linux":
+        jobPlatform = "ubuntu"
+    elif platform == "Windows_NT":
+        jobPlatform = "windows_nt"
     assert(arch == "x64")
     assert(config == "Checked")
-    return "checked_ubuntu"
+    jobName = config.lower() + "_" + jobPlatform
+    if isPr:
+        jobName += "_prtest"
+    return jobName
 
 def main(argv):
     # TODO: fix: script expects to be run from coreclr repo root
     coreclrDir = os.path.abspath(".")
 
-    platform = "Linux"
+    # platform = "Linux"
+    platform = "Windows_NT"
     arch = "x64"
     config = "Checked"
     jenkinsJobName = getJenkinsJobName(platform, arch, config)
-    jenkinsJobNamePR = "checked_ubuntu_prtest"
+    jenkinsJobNamePR = getJenkinsJobName(platform, arch, config, isPr = True)
     
     jitdiffDir = os.path.join(coreclrDir, "jitdiff")
     if not os.path.isdir(jitdiffDir):
@@ -296,7 +310,7 @@ def main(argv):
     
     dotnetPath = locate_dotnet(coreclrDir, platform)
     jitutilsRepoPath = clone_jitutils(jitdiffDir)
-    (cijobs, jitdiff, jitdasm) = build_jitutils(dotnetPath, jitutilsRepoPath)
+    (cijobs, jitdiff, jitdasm) = build_jitutils(dotnetPath, jitutilsRepoPath, platform)
 
 
     # for PR commits, the jenkins job is run on a merge commit.
@@ -313,9 +327,9 @@ def main(argv):
     # it should be possible to check out a github PR commit, and diff it with the current master (the would-be merge base?)
     # let's try that instead for now, but the PR jobs should definitely use the base commit of the merge.
     
-    current_commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip()
+    current_commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode('utf-8').strip()
     print("current commit: " + current_commit)
-    base_commit = subprocess.check_output(["git", "rev-parse", "master"]).strip()
+    base_commit = subprocess.check_output(["git", "rev-parse", "master"]).decode('utf-8').strip()
     print("base commit: " + base_commit)
     # test joe's pr: https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu_prtest/9654/
     current_commit = "06b01cb956955f7c85683a973abf24f9e0985418"
