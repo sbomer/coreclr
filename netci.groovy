@@ -255,6 +255,9 @@ def static getJobFolder(def scenario) {
     if (scenario == 'illink') {
         return 'illink'
     }
+    if (isJitDiff(scenario)) {
+        return 'jitdiff'
+    }
     return ''
 }
 
@@ -1434,7 +1437,6 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
                     if (Constants.jitStressModeScenarios.containsKey(scenario) ||
                             scenario == 'default' ||
                             scenario == 'r2r' ||
-                            scenario == 'jitdiff' ||
                             scenario == 'ilrt' ||
                             scenario == 'illink' ||
                             Constants.r2rJitStressScenarios.indexOf(scenario) != -1) {
@@ -1462,6 +1464,10 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
                         buildCommands += "python -u tests\\scripts\\format.py -c %WORKSPACE% -o Windows_NT -a ${arch}"
                         Utilities.addArchival(newJob, "format.patch", "", true, false)
                         break
+                    }
+                    else if (isJitDiff(scenario)) {
+                        // buildCommand += "python -u tests\\scripts\\jitdiff.py -o ${os} -a ${arch} -c ${configuration}"
+                        // Utilities.addArchival(newJob, "jitdiff/**")
                     }
                     else {
                         println("Unknown scenario: ${scenario}")
@@ -1537,7 +1543,7 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
 
                         if (scenario == 'jitdiff')
                         {
-                            runjitdisasmStr = 'jitdisasm crossgen'
+                            // runjitdisasmStr = 'jitdisasm crossgen'
                         }
 
                         if (scenario == 'ilrt')
@@ -1580,6 +1586,9 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
                             buildCommands += "tests\\runtest.cmd ${runtestArguments} GenerateLayoutOnly"
                             buildCommands += "tests\\scripts\\run-gc-reliability-framework.cmd ${arch} ${configuration}"
                         }
+                        else if (isJitDiff(scenario)) {
+                            buildCommands += ""
+                        }
                         else if (architecture == 'x64' || architecture == 'x86') {
                             buildCommands += "tests\\runtest.cmd ${runtestArguments}"
                         }
@@ -1613,7 +1622,7 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
                             // retrive jit-dasm output for base commit, and run jit-diff
                             if (!isBuildOnly) {
                                 // if this is a build only job, we want to keep the default (build) artifacts for the flow job
-                                Utilities.addArchival(newJob, "bin/tests/${osGroup}.${arch}.${configuration}/dasm/**")
+                                // Utilities.addArchival(newJob, "bin/tests/${osGroup}.${arch}.${configuration}/dasm/**")
                             }
                         }
 
@@ -2491,7 +2500,7 @@ combinedScenarios.each { scenario ->
 
                     if (scenario == 'jitdiff')
                     {
-                        runjitdisasmStr = '--jitdisasm --crossgen'
+                        // runjitdisasmStr = '--jitdisasm --crossgen'
                     }
 
                     if (scenario == 'illink')
