@@ -23,6 +23,17 @@ def isUnix(platform):
         return False
     return True
 
+def getRid(platform):
+    if platform == "Linux":
+        rid = "linux-x64"
+    elif platform == "Windows_NT":
+        rid = "win8-x64"
+    elif platform == "OSX":
+        rid = "osx.10.12-x64"
+    else:
+        assert(False)
+    return rid
+
 def locate_dotnet(coreclrDir, platform):
 
 #    We may be able to use the Tools cli once DotnetCLIVersion.txt is updated.
@@ -84,10 +95,8 @@ def build_jitutils(dotnetPath, jitutilsPath, platform):
     if os.path.isfile(cijobs) and os.path.isfile(jitdiff) and os.path.isfile(jitdasm) and os.path.isfile(jitanalyze):
         print(jitutilsBinDir + " already contains cijobs, jit-diff, jit-dasm, and jit-analyze. Assuming jitutils was already built.")
         return (cijobs, jitdiff, jitdasm)
-    if platform == "Linux":
-        rid = "linux-x64"
-    elif platform == "Windows_NT":
-        rid = "win8-x64"
+
+    rid = getRid(platform)
     ret = subprocess.call([dotnetPath, "restore", "-r", rid], cwd=jitutilsPath)
     if ret != 0:
         sys.exit("failed to restore " + jitutilsPath)
@@ -101,6 +110,13 @@ def build_jitutils(dotnetPath, jitutilsPath, platform):
     # however, these aren't executable on linux, so we still need a workaround:
     # TODO: if os is linux:
     # TODO: remove this workaround once coreclr uses a recent enough cli (issue was fixed in https://github.com/dotnet/sdk/issues/1331)
+
+#    if platform == "OSX":
+#        shutil.copyfile(dotnetPath, os.path.join(jitutilsBinDir, "cijobs"))
+#        shutil.copyfile(dotnetPath, os.path.join(jitutilsBinDir, "jit-diff"))
+#        shutil.copyfile(dotnetPath, os.path.join(jitutilsBinDir, "jit-dasm"))
+#        shutil.copyfile(dotnetPath, os.path.join(jitutilsBinDir, "jit-analyze"))
+            
     if isUnix(platform):
         os.chmod(cijobs, 751)
         os.chmod(jitdiff, 751)
@@ -296,6 +312,10 @@ def getJenkinsJobName(platform, arch, config, isPr = False):
         jobPlatform = "ubuntu"
     elif platform == "Windows_NT":
         jobPlatform = "windows_nt"
+    elif platform == "OSX":
+        jobPlatform = "osx10.12"
+    else:
+        assert(False)
 
     assert(arch == "x64")
     assert(config == "Checked")
