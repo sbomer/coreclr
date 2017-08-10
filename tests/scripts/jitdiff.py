@@ -246,9 +246,8 @@ def generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinD
     return overlayDir
     
 
-def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir):
-    crossgenName = "crossgen"
-    crossgen = os.path.join(currentBinDir, crossgenName)
+def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir, platform):
+    crossgen = os.path.join(currentBinDir, executableName("crossgen", platform))
     if not os.path.isfile(crossgen):
         sys.exit("crossgen executable does not exist in " + crossgen)
 
@@ -296,8 +295,8 @@ def main(argv):
     # TODO: fix: script expects to be run from coreclr repo root
     coreclrDir = os.path.abspath(".")
 
-    # platform = "Linux"
-    platform = "Windows_NT"
+    platform = "Linux"
+    # platform = "Windows_NT"
     arch = "x64"
     config = "Checked"
     jenkinsJobName = getJenkinsJobName(platform, arch, config)
@@ -347,7 +346,7 @@ def main(argv):
     corefxBinDir = obtain_corefx_build(cijobs, currentCoreclrDir, jenkinsJobName = "ubuntu14.04_release")
     overlayDir = generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir)
 
-    ret = runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir)
+    ret = runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir, platform)
     
 
     # we need core_root to contain the dependencies of the stuff we're crossgen'ing.
