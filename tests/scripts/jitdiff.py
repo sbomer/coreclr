@@ -110,7 +110,7 @@ def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, 
         print(outputBinDir + " already exists. Assuming artifacts for commit " + commit + " were already downloaded")
         return outputBinDir
     
-    # print(dotnetPath + " " + cijobs + " copy --job " + jobName + " --commit " + commit + " --output " + outputDir)
+    print(cijobs + " copy --job " + jenkinsJobName + " --commit " + commit + " --output " + outputDir)
     # todo: if this commit doesn't have a job? or if it's unsuccessful?
     ret = subprocess.call([cijobs, "copy",
                            "--job", jenkinsJobName,
@@ -203,7 +203,6 @@ def obtain_corefx_build(cijobs, coreclrDir, jenkinsJobName):
 #    if folder != "":
 #        folderPrefix = folder + "/"
 #    fullJobName = folderPrefix + jobName + jobSuffix
-
 
 
 def generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir):
@@ -332,9 +331,7 @@ def main(argv):
     base_commit = subprocess.check_output(["git", "rev-parse", "master"]).decode('utf-8').strip()
     print("base commit: " + base_commit)
     # test joe's pr: https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu_prtest/9654/
-    current_commit = "06b01cb956955f7c85683a973abf24f9e0985418"
     # https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu/9603/
-    base_commit = "95b075fbdaee0c98b1527530787df708607063ae"
 
     localJobDir = os.path.join(jitdiffDir, "artifacts")
     if not os.path.isdir(localJobDir):
