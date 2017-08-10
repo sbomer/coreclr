@@ -10,12 +10,18 @@
 import sys
 import os
 import subprocess
+import argparse
 
 def executableName(name, platform):
     if platform == "Windows_NT":
         return name + ".exe"
     else:
         return name
+
+def isUnix(platform):
+    if platform == "Windows_NT":
+        return False
+    return True
 
 def locate_dotnet(coreclrDir, platform):
 
@@ -95,7 +101,7 @@ def build_jitutils(dotnetPath, jitutilsPath, platform):
     # however, these aren't executable on linux, so we still need a workaround:
     # TODO: if os is linux:
     # TODO: remove this workaround once coreclr uses a recent enough cli (issue was fixed in https://github.com/dotnet/sdk/issues/1331)
-    if platform == "Linux" or platform == "OSX":
+    if isUnix(platform):
         os.chmod(cijobs, 751)
         os.chmod(jitdiff, 751)
         os.chmod(jitdasm, 751)
@@ -121,10 +127,10 @@ def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, 
         sys.exit("failed to obtain product build for commit " + commit + ", job " + jenkinsJobName)
     return outputBinDir
 
-def obtain_windows_test_build(cijobs, coreclrDir, win_arch, win_config):
-    # TODO: remove this entire function once we don't depend on
+def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, win_config):
+    # TODO: make this work for any platform's test build, once we don't depend on
     # windows to build tests. Ideally we would obtain tests from a
-    # linux job.
+    # linux job for linux, etc.
     #dotnet_coreclr/master/config_windows_nt_bld
     #CORECLR_WINDOWS_BUILD
     # TODO: parameterize by arch, config
@@ -134,25 +140,32 @@ def obtain_windows_test_build(cijobs, coreclrDir, win_arch, win_config):
         return windowsTestBinDir
     jenkinsJobName = "checked_windows_nt_bld"
     # TODO: which commit to download?
-    ret = subprocess.call([cijobs, "copy",
-                           "--job", jenkinsJobName,
-                           "--output", windowsTestBinDir,
-                           "--last_successful",
-                           "--ContentPath", "artifact/bin/tests/tests.zip"])
-    # We can't pass the --unzip argument here, because the zip file
-    # contains backslash separators and cijobs will (correctly)
-    # interpret these as part of the filename on non-windows
-    # platforms. This happens because the zip file is created in
-    # netci.groovy using an old version of the framework that treats
-    # path separators incorrectly. Once the netci.groovy jobs run on
-    # machines with .NET 4.6.1 or later, this should be fixed:
-    # https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/mitigation-ziparchiveentry-fullname-path-separator
-    if ret != 0 or not os.path.isdir(windowsTestBinDir):
-        sys.exit("failed to obtain windows test build")
-    ret = subprocess.call(["unzip", "-q", os.path.join(windowsTestBinDir, "tests.zip"), "-d", windowsTestBinDir])
-    if ret > 1:
-        sys.exit("failed to unzip windows test build")
-    return windowsTestBinDir
+    command = [cijobs, "copy",
+               "--job", jenkinsJobName,
+               "--output", windowsTestBinDir,
+               "--commit", commit,
+               "--ContentPath", "artifact/bin/tests/tests.zip"]
+    if platform == "Windows_NT":
+        command.append("--unzip")
+    ret = subprocess.call(command)
+    
+    if platform == "Windows_NT":
+        return windowsTestBinDir
+    else:
+        # We can't pass the --unzip argument here, because the zip file
+        # contains backslash separators and cijobs will (correctly)
+        # interpret these as part of the filename on non-windows
+        # platforms. This happens because the zip file is created in
+        # netci.groovy using an old version of the framework that treats
+        # path separators incorrectly. Once the netci.groovy jobs run on
+        # machines with .NET 4.6.1 or later, this should be fixed:
+        # https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/mitigation-ziparchiveentry-fullname-path-separator
+        if ret != 0 or not os.path.isdir(windowsTestBinDir):
+            sys.exit("failed to obtain windows test build")
+        ret = subprocess.call(["unzip", "-q", os.path.join(windowsTestBinDir, "tests.zip"), "-d", windowsTestBinDir])
+        if ret > 1:
+            sys.exit("failed to unzip windows test build")
+        return windowsTestBinDir
 
 
 def obtain_unix_test_build(cijobs, coreclrDir, commit, localJobDir, jenkinsJobName, platform, arch, config):
@@ -205,7 +218,7 @@ def obtain_corefx_build(cijobs, coreclrDir, jenkinsJobName):
 #    fullJobName = folderPrefix + jobName + jobSuffix
 
 
-def generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir):
+def generate_overlay(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir):
     # coreroot is the directory that contains tests, test dependencies, the framework, and our built product.
     # it looks like on windows, the framework dependencies get restored as packages.
     # we can build tests on unix (maybe with some caveats), but it's apparantly slow
@@ -246,15 +259,14 @@ def generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinD
     return overlayDir
     
 
-def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir, platform):
+def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRoot, testBinDir, jitdiffDir, platform):
     crossgen = os.path.join(currentBinDir, executableName("crossgen", platform))
     if not os.path.isfile(crossgen):
         sys.exit("crossgen executable does not exist in " + crossgen)
 
-    if platform == "Linux" or platform == "OSX":
+    if isUnix(platform):
         os.chmod(crossgen, 751)
     # jit-diff takas as input: directories containing the base and diff jits, a core_root containing the platform assemblies, and a crossgen exe.
-
 
     diffDir = os.path.join(jitdiffDir, "diffs")
     if not os.path.isdir(diffDir):
@@ -269,8 +281,8 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsT
                            "--base", baseBinDir,
                            "--diff", currentBinDir,
                            "--crossgen", crossgen,
-                           "--core_root", overlayDir,
-                           "--test_root", windowsTestBinDir,
+                           "--core_root", coreRoot,
+                           "--test_root", testBinDir,
                            "--output", diffDir,
                            "--corelib"],
 #                           "--frameworks",
@@ -284,18 +296,42 @@ def getJenkinsJobName(platform, arch, config, isPr = False):
         jobPlatform = "ubuntu"
     elif platform == "Windows_NT":
         jobPlatform = "windows_nt"
+
     assert(arch == "x64")
     assert(config == "Checked")
+
     jobName = config.lower() + "_" + jobPlatform
     if isPr:
         jobName += "_prtest"
     return jobName
 
 def main(argv):
+    parser = argparse.ArgumentParser()
+    required = parser.add_argument_group('required arguments')
+    required.add_argument('-o', '--os', type=str, default=None, help='operating system')
+    required.add_argument('-r', '--revision', type=str, default=None, help='revision')
+    args, unknown = parser.parse_known_args(argv)
+
+    if unknown:
+        print('Ignoring argumen(s): ', ','.join(unknown))
+
+    if args.os is None:
+        print('Specify --os')
+        return -1
+
+    if args.revision is None:
+        print('specify --revision')
+        return -1
+
+    # TODO: determine os if not passed
+    platform = args.os
+    # TODO: determine revision if not passed
+    revision = args.revision
+
     # TODO: fix: script expects to be run from coreclr repo root
     coreclrDir = os.path.abspath(".")
 
-    platform = "Linux"
+    # platform = "Linux"
     # platform = "Windows_NT"
     arch = "x64"
     config = "Checked"
@@ -325,9 +361,10 @@ def main(argv):
     # it should be possible to check out a github PR commit, and diff it with the current master (the would-be merge base?)
     # let's try that instead for now, but the PR jobs should definitely use the base commit of the merge.
     
-    current_commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode('utf-8').strip()
+    current_commit = subprocess.check_output(["git", "rev-parse", revision]).decode('utf-8').strip()
     print("current commit: " + current_commit)
     base_commit = subprocess.check_output(["git", "rev-parse", "master"]).decode('utf-8').strip()
+    base_commit = subprocess.check_output(["git", "rev-parse", revision + "^"]).decode('utf-8').strip()
     print("base commit: " + base_commit)
     # test joe's pr: https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu_prtest/9654/
     # https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu/9603/
@@ -336,18 +373,25 @@ def main(argv):
     if not os.path.isdir(localJobDir):
         os.makedirs(localJobDir)
     
-    currentBinDir = obtain_product_build(cijobs, current_commit, localJobDir, jenkinsJobNamePR, platform, arch, config)
     baseBinDir = obtain_product_build(cijobs, base_commit, localJobDir, jenkinsJobName, platform, arch, config)
+
+
+    currentBinDir = obtain_product_build(cijobs, current_commit, localJobDir, jenkinsJobName, platform, arch, config)
 
     currentCoreclrDir = os.path.join(localJobDir, current_commit)
     
-    windowsTestBinDir = obtain_windows_test_build(cijobs, currentCoreclrDir, arch, config)
-    unixTestBinDir = obtain_unix_test_build(cijobs, currentCoreclrDir, current_commit, localJobDir, jenkinsJobNamePR, platform, arch, config)
-    corefxBinDir = obtain_corefx_build(cijobs, currentCoreclrDir, jenkinsJobName = "ubuntu14.04_release")
-    overlayDir = generate_coreroot(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir)
+    windowsTestBinDir = obtain_windows_test_build(cijobs, currentCoreclrDir, current_commit, platform, arch, config)
+    testBinDir = windowsTestBinDir
 
-    ret = runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, overlayDir, windowsTestBinDir, jitdiffDir, platform)
-    
+    if isUnix(platform):
+        unixTestBinDir = obtain_unix_test_build(cijobs, currentCoreclrDir, current_commit, localJobDir, jenkinsJobNamePR, platform, arch, config)
+        corefxBinDir = obtain_corefx_build(cijobs, currentCoreclrDir, jenkinsJobName = "ubuntu14.04_release")
+        overlayDir = generate_overlay(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir)
+        coreRootDir = overlayDir
+    else:
+        coreRootDir = os.path.join(testBinDir, "Tests", "Core_Root")
+
+    ret = runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRootDir, testBinDir, jitdiffDir, platform)
 
     # we need core_root to contain the dependencies of the stuff we're crossgen'ing.
     # usually this will be available whenever we have managed dlls as inputs anyway.
