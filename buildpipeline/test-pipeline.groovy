@@ -1,4 +1,4 @@
-@Library('dotnet-ci')
+@Library('dotnet-ci') _
 
 simpleNode('Windows_NT', 'latest') {
     stage('checkout sources') {
