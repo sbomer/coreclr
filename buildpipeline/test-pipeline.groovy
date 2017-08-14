@@ -28,12 +28,12 @@ simpleNode('Windows_NT', 'latest') {
     stage('parallel test') {
         parallel (
             "windows test" : {
-                node('windows') {
+                simpleNode('Windows_NT', 'latest') {
                     bat "print from windows"
                 }
             },
             "linux test" : {
-                node('linux') {
+                simpleNode('Ubuntu16.04') {
                     sh "echo from linux"
                 }
             }
