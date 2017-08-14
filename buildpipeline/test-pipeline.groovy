@@ -26,7 +26,7 @@ simpleNode('Windows_NT', 'latest') {
     }
     stage('archive artifacts') {
         archiveArtifacts artifacts: 'build.txt'
-        archiveArtifacts artifacts: 'bin'
+        archiveArtifacts artifacts: 'bin/*'
     }
 }
 stage('parallel test') {
