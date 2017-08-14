@@ -34,7 +34,7 @@ stage('parallel test') {
             }
         },
         "linux test" : {
-            simpleNode('Ubuntu16.04') {
+            simpleNode('Ubuntu16.04', 'latest') {
                 sh "echo from linux"
             }
         }
