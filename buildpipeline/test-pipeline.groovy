@@ -21,9 +21,12 @@ simpleNode('Windows_NT', 'latest') {
     stage('build') {
         // bat '.\\build.cmd'
         bat 'print building! > build.txt'
+        bat 'mkdir bin'
+        bat 'print build file > bin/build.txt'
     }
     stage('archive artifacts') {
         archiveArtifacts artifacts: 'build.txt'
+        archiveArtifacts artifacts: 'bin'
     }
 }
 stage('parallel test') {
