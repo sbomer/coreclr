@@ -24,4 +24,18 @@ simpleNode('Windows_NT', 'latest') {
     stage('archive artifacts') {
         archiveArtifacts artifacts: 'bin'
     }
+    stage('parallel test') {
+        parallel (
+            "windows test" : {
+                node('windows') {
+                    bat "print from windows"
+                }
+            },
+            "linux test" : {
+                node('linux') {
+                    sh "echo from linux"
+                }
+            }
+        )
+    }
 }
