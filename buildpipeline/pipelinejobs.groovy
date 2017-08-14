@@ -4,3 +4,6 @@ def testPipeline = Pipeline.createPipeline(this, 'buildpipeline/test-pipeline.gr
 testPipeline.triggerPipelineManually()
 testPipeline.triggerPipelineOnPush()
 testPipeline.triggerPipelineOnEveryGithubPR('test pipeline status', ".*test\\W+my\\W+job.*")
+
+def testPipeline2 = Pipeline.createPipeline(this, 'buildpipeline/test-pipeline2.groovy')
+testPipeline.triggerPipelineManually()
