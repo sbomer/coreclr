@@ -25,18 +25,19 @@ simpleNode('Windows_NT', 'latest') {
     stage('archive artifacts') {
         archiveArtifacts artifacts: 'build.txt'
     }
-    stage('parallel test') {
-        parallel (
-            "windows test" : {
-                simpleNode('Windows_NT', 'latest') {
-                    bat "print from windows"
-                }
-            },
-            "linux test" : {
-                simpleNode('Ubuntu16.04') {
-                    sh "echo from linux"
-                }
-            }
-        )
-    }
 }
+stage('parallel test') {
+    parallel (
+        "windows test" : {
+            simpleNode('Windows_NT', 'latest') {
+                bat "print from windows"
+            }
+        },
+        "linux test" : {
+            simpleNode('Ubuntu16.04') {
+                sh "echo from linux"
+            }
+        }
+    )
+}
+
