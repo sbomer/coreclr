@@ -19,10 +19,11 @@ simpleNode('Windows_NT', 'latest') {
         checkout scm
     }
     stage('build') {
-        bat '.\\build.cmd'
+        // bat '.\\build.cmd'
+        bat 'print building! > build.txt'
     }
     stage('archive artifacts') {
-        archiveArtifacts artifacts: 'bin'
+        archiveArtifacts artifacts: 'build.txt'
     }
     stage('parallel test') {
         parallel (
