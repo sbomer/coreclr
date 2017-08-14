@@ -7,3 +7,7 @@ testPipeline.triggerPipelineOnEveryGithubPR('test pipeline status', ".*test\\W+m
 
 def testPipeline2 = Pipeline.createPipeline(this, 'buildpipeline/test-pipeline2.groovy')
 testPipeline2.triggerPipelineManually()
+
+['testconfig1', 'testconfig2'].each { configuration ->
+    testPipeline2.triggerPipelineManually(['Configuration':configuration])
+}
