@@ -15,6 +15,10 @@ simpleNode('Windows_NT', 'latest') {
         build job: 'build-pipeline'
     }
     stage('obtain artifacts') {
-               
+        copyArtifacts('build-pipeline') {
+            buildSelector {
+                latestSuccessful(true)
+            }
+        }
     }
 }

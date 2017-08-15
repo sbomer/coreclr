@@ -30,8 +30,6 @@ class CoreclrJob {
     Platform os
     Architecture arch
     Configuration config
-    
-    
 }
 
 
@@ -51,3 +49,4 @@ def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipel
 [''].each { configuration ->
     testPipeline.triggerPipelineManually(['Configuration':configuration])
 }
+             
