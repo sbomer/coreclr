@@ -6,7 +6,7 @@ simpleNode('Windows_NT', 'latest') {
     }
     stage('init test dependencies') {
         bat 'init-tools.cmd'
-        bat 'python tests\\scripts\\build_jitutils.py'
+        bat 'python tests\\scripts\\build_jitutils.py --os Windows_NT'
     }
     stage('obtain artifacts') {
         bat 'Tools\\jitutils\\bin\\cijobs --help'
