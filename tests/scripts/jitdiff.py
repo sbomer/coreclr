@@ -77,7 +77,8 @@ def clone_jitutils(jitdiffDir):
     jitutilsRepoName = "jitutils"
     jitutilsRepoPath = os.path.abspath(os.path.join(jitdiffDir, jitutilsRepoName))
     if os.path.isdir(jitutilsRepoPath):
-        print(jitutilsRepoPath + " already exists. Assuming jitutils was already cloned.")
+        # print(jitutilsRepoPath + " already exists.")
+        print("Assuming jitutils was already cloned.")
         return jitutilsRepoPath
     jitutilsRepoUrl = "https://github.com/dotnet/" + jitutilsRepoName + ".git"
     ret = subprocess.call(["git", "clone", jitutilsRepoUrl], cwd=jitdiffDir)
@@ -93,7 +94,8 @@ def build_jitutils(dotnetPath, jitutilsPath, platform):
     jitanalyze = os.path.join(jitutilsBinDir, executableName("jit-analyze", platform))
 
     if os.path.isfile(cijobs) and os.path.isfile(jitdiff) and os.path.isfile(jitdasm) and os.path.isfile(jitanalyze):
-        print(jitutilsBinDir + " already contains cijobs, jit-diff, jit-dasm, and jit-analyze. Assuming jitutils was already built.")
+        # print(jitutilsBinDir + " already contains binaries.")
+        print("Assuming jitutils was already built.")
         return (cijobs, jitdiff, jitdasm)
 
     rid = getRid(platform)
@@ -129,7 +131,8 @@ def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, 
     outputDir = os.path.join(localJobDir, commit, "bin")
     outputBinDir = os.path.join(outputDir, "Product", platform + "." + arch + "." + config)
     if os.path.isdir(outputBinDir):
-        print(outputBinDir + " already exists. Assuming artifacts for commit " + commit + " were already downloaded")
+        # print(outputBinDir + " already exists.")
+        print("Assuming artifacts for commit " + commit + " were already downloaded")
         return outputBinDir
     
     print(cijobs + " copy --job " + jenkinsJobName + " --commit " + commit + " --output " + outputDir)
@@ -164,7 +167,9 @@ def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, wi
     if platform == "Windows_NT":
         command.append("--unzip")
     ret = subprocess.call(command)
-    
+    if ret != 0 or not os.path.isdir(windowsTestBinDir):
+            sys.exit("failed to obtain windows test build") 
+
     if platform == "Windows_NT":
         return windowsTestBinDir
     else:
@@ -176,8 +181,6 @@ def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, wi
         # path separators incorrectly. Once the netci.groovy jobs run on
         # machines with .NET 4.6.1 or later, this should be fixed:
         # https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/mitigation-ziparchiveentry-fullname-path-separator
-        if ret != 0 or not os.path.isdir(windowsTestBinDir):
-            sys.exit("failed to obtain windows test build")
         ret = subprocess.call(["unzip", "-q", os.path.join(windowsTestBinDir, "tests.zip"), "-d", windowsTestBinDir])
         if ret > 1:
             sys.exit("failed to unzip windows test build")
@@ -300,8 +303,8 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRoot, testBinDir
                            "--core_root", coreRoot,
                            "--test_root", testBinDir,
                            "--output", diffDir,
-                           "--corelib"],
-#                           "--frameworks",
+#                           "--corelib"],
+                           "--frameworks"],
 #                           "--tests"],
                           env=jitdiff_env)
     return ret
@@ -382,7 +385,7 @@ def main(argv):
     # let's try that instead for now, but the PR jobs should definitely use the base commit of the merge.
     
     current_commit = subprocess.check_output(["git", "rev-parse", revision]).decode('utf-8').strip()
-    print("current commit: " + current_commit)
+    print("diff commit: " + current_commit)
     base_commit = subprocess.check_output(["git", "rev-parse", "master"]).decode('utf-8').strip()
     base_commit = subprocess.check_output(["git", "rev-parse", revision + "^"]).decode('utf-8').strip()
     print("base commit: " + base_commit)
