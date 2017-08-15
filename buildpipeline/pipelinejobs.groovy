@@ -1,6 +1,7 @@
 import org.dotnet.ci.pipelines.Pipeline
 
 
+
 class CoreclrJob {
     enum Configuration {
         debug, checked, release
@@ -44,7 +45,6 @@ def testPipeline = Pipeline.createPipeline(this, 'buildpipeline/test-pipeline.gr
 testPipeline.triggerPipelineManually()
 
 def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipeline.groovy')
-
 
 
 

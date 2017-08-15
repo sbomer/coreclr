@@ -43,7 +43,8 @@ def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, wi
     # TODO: parameterize by arch, config
     windowsTestBinDir = os.path.join(coreclrDir, "bin", "tests", "Windows_NT." + win_arch + "." + win_config)
     if os.path.isdir(windowsTestBinDir):
-        print(windowsTestBinDir + " already exists. Assuming artifacts for windows test build were already downloaded")
+        # print(windowsTestBinDir + " already exists.")
+        print("Assuming artifacts for windows test build were already downloaded")
         return windowsTestBinDir
     jenkinsJobName = "checked_windows_nt_bld"
     # TODO: which commit to download?
@@ -79,7 +80,8 @@ def obtain_unix_test_build(cijobs, coreclrDir, commit, localJobDir, jenkinsJobNa
     outputDir = os.path.join(localJobDir, commit, "bin")
     unixTestBinDir = os.path.join(outputDir, "obj", platform + "." + arch + "." + config, "tests")
     if os.path.isdir(unixTestBinDir):
-        print(unixTestBinDir + " already exists. Assuming artifacts for unix test build were already downloaded")
+        # print(unixTestBinDir + " already exists.")
+        print("Assuming artifacts for unix test build were already downloaded")
         return unixTestBinDir
     ret = subprocess.call([cijobs, "copy",
                            "--job", jenkinsJobName,
@@ -98,7 +100,8 @@ def obtain_corefx_build(cijobs, coreclrDir, jenkinsJobName):
     #use last successful build
     outputDir = os.path.join(coreclrDir, "bin", "CoreFxBinDir")
     if os.path.isdir(outputDir):
-        print(outputDir + " already exists. Assuming artifacts for corefx build were already downloaded")
+        # print(outputDir + " already exists.")
+        print("Assuming artifacts for corefx build were already downloaded")
         return outputDir
     # TODO: which commit?
     ret = subprocess.call([cijobs, "copy",
@@ -152,7 +155,8 @@ def generate_overlay(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDi
     # need sources to be available in order to call runtest.sh
     overlayDir = os.path.join(windowsTestBinDir, "Tests", "coreoverlay")
     if os.path.isdir(overlayDir):
-        print(overlayDir + " already exists. Assuming coreoverlay has already been generated")
+        # print(overlayDir + " already exists.")
+        print("Assuming coreoverlay has already been generated")
         return overlayDir
     ret = subprocess.call([os.path.join(coreclrDir, "tests", "runtest.sh"),
                            "--testRootDir=" + windowsTestBinDir,
