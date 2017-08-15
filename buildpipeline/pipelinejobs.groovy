@@ -49,5 +49,5 @@ def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipel
 
 
 [''].each { configuration ->
-    testPipeline2.triggerPipelineManually(['Configuration':configuration])
+    testPipeline.triggerPipelineManually(['Configuration':configuration])
 }
