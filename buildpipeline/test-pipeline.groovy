@@ -5,7 +5,7 @@ simpleNode('Windows_NT', 'latest') {
     }
     stage('init test dependencies') {
         step('init-tools') {
-            bat 'init-tools.cmd'
+            bat '.\\init-tools.cmd'
         }
         step('build jitutils') {
             bat 'python tests\\scripts\\build_jitutils.py'
