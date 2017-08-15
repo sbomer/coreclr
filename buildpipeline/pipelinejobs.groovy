@@ -31,8 +31,6 @@ class CoreclrJob {
     Configuration config
     
     
-    
-    
 }
 
 

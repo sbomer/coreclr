@@ -12,66 +12,7 @@ import os
 import subprocess
 import argparse
 
-def executableName(name, platform):
-    if platform == "Windows_NT":
-        return name + ".exe"
-    else:
-        return name
-
-def isUnix(platform):
-    if platform == "Windows_NT":
-        return False
-    return True
-
-def getRid(platform):
-    if platform == "Linux":
-        rid = "linux-x64"
-    elif platform == "Windows_NT":
-        rid = "win8-x64"
-    elif platform == "OSX":
-        rid = "osx.10.12-x64"
-    else:
-        assert(False)
-    return rid
-
-def locate_dotnet(coreclrDir, platform):
-
-#    We may be able to use the Tools cli once DotnetCLIVersion.txt is updated.
-#    The current version has a bug that prevents building jitutils.
-    
-    toolsPath = os.path.join(coreclrDir, "Tools")
-    if not os.path.isdir(toolsPath):
-        sys.exit("No Tools directory. Run init-tools first.")
-
-    dotnetPath = os.path.join(toolsPath, "dotnetcli", executableName("dotnet", platform))
-
-#    os = "Linux"
-#    
-#    if os == "Linux":
-#        dotnetcliUrl = "https://download.microsoft.com/download/F/A/A/FAAE9280-F410-458E-8819-279C5A68EDCF/dotnet-sdk-2.0.0-preview2-006497-linux-x64.tar.gz"
-#        dotnetcliFilename = os.path.join(coreclr, "dotnetcli-jitdiff.tar.gz")
-# 
-#    response = urllib2.urlopen(dotnetcliUrl)
-#    request_url = response.geturl()
-#    testfile = urllib.URLopener()
-#    testfile.retrieve(request_url, dotnetcliFilename)
-# 
-#    if not os.path.isfile(dotnetcliFilename):
-#        sys.exit("did not download .NET SDK")
-# 
-#    if platform == "Linux":
-#        tar = tarfile.open(dotnetcliFilename)
-#        tar.extractall(dotnetcliPath)
-#        tar.close()
-# 
-#    if platform == "Linux":
-#        dotnet = "dotnet"
-# 
-#    dotnetPath = os.path.join(dotnetcliPath
-    if not os.path.isfile(dotnetPath):
-        sys.exit("dotnet executable not found at " + dotnetPath)
- 
-    return dotnetPath
+from build_jitutils import *
 
 
 def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, arch, config):
@@ -282,7 +223,7 @@ def main(argv):
     args, unknown = parser.parse_known_args(argv)
 
     if unknown:
-        print('Ignoring argumen(s): ', ','.join(unknown))
+        print('Ignoring argument(s): ', ','.join(unknown))
 
     if args.os is None:
         print('Specify --os')
