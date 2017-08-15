@@ -12,7 +12,7 @@ simpleNode('Windows_NT', 'latest') {
         bat 'Tools\\jitutils\\bin\\cijobs --help'
     }
     stage('run other job') {
-        build job: 'test-pipeline'
+        build job: 'build-pipeline'
     }
     stage('obtain artifacts') {
                
