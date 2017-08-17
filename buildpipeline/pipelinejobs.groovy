@@ -33,6 +33,19 @@ class CoreclrJob {
 }
 
 
+// for the generated job definitions:
+// call createPipeline with the path to the file
+// call trigger functions, passing trigger phrase
+// maybe override some options (like the job name...)
+
+// dotnet-ci does the following:
+// createPipeline makes a Pipeline with context, baseJobName, pipelinefile
+//   adds github scm (project, branch, credentialsid)
+//   create standard pipeline job
+//     enable concurrent build, quiet period of 5 seconds
+//     wrap with timestamps, preBuild cleanup, postBuild cleanup
+//   emitScmForNonPR, etc.,
+//   newJob.with parameters. params become parameters of the job
 
 def buildPipeline = Pipeline.createPipeline(this, 'buildpipeline/build-pipeline.groovy')
 buildPipeline.triggerPipelineManually()
@@ -40,7 +53,8 @@ buildPipeline.triggerPipelineOnPush()
 buildPipeline.triggerPipelineOnEveryGithubPR('build pipeline status', ".*test\\W+my\\W+job.*")
 
 def testPipeline = Pipeline.createPipeline(this, 'buildpipeline/test-pipeline.groovy')
-testPipeline.triggerPipelineManually()
+testPipeline.triggerPipelineManually([os: "Windows_NT"])
+testPipeline.triggerPipelineManually([os: "Ubuntu"])
 
 def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipeline.groovy')
 
@@ -49,4 +63,4 @@ def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipel
 [''].each { configuration ->
     testPipeline.triggerPipelineManually(['Configuration':configuration])
 }
-             
+              
