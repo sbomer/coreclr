@@ -9,7 +9,7 @@ simpleNode(params.os, 'latest') {
         checkout scm
     }
     stage('init test dependencies') {
-        if (param.os == "Windows_NT") {
+        if (params.os == "Windows_NT") {
             bat 'init-tools.cmd'
             bat 'python tests/scripts/jitdiff/build_jitutils.py --os Windows_NT'
         } else if (params.os == "Ubuntu") {
@@ -21,7 +21,7 @@ simpleNode(params.os, 'latest') {
     stage('obtain diff inputs') {
         parallel (
             "obtain base product" : {
-                switch (param.os) {
+                switch (params.os) {
                     case "Windows_NT":
                         bat 'python tests/scripts/jitdiff/obtain_base_product.py'
                         break;
@@ -31,16 +31,16 @@ simpleNode(params.os, 'latest') {
                 }
             },
             "obtain diff product" : {
-                if (param.os == "Windows_NT") {
+                if (params.os == "Windows_NT") {
                     bat 'python tests\\scripts\\obtain_diff_product.py'
-                } else if (param.os == "Ubuntu") {
+                } else if (params.os == "Ubuntu") {
                     sh 'python tests/scripts/jitdiff/obtain_diff_product.py'
                 }
             },
             "obtain diff test build" : {
-                if (param.os == "Windows_NT") {
+                if (params.os == "Windows_NT") {
                     bat 'python tests\\scripts\\obtain_diff_test_build.py'
-                } else if (param.os == "Ubuntu") {
+                } else if (params.os == "Ubuntu") {
                     sh 'python tests/scripts/jitdiff/obtain_diff_test_build.py'
                 }
             }
