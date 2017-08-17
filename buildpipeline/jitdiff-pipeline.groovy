@@ -40,7 +40,9 @@ simpleNode(params.os, 'latest') {
             "obtain diff test build" : {
                 if (param.os == "Windows_NT") {
                     bat 'python tests\\scripts\\obtain_diff_test_build.py'
-                } else if (param.os
+                } else if (param.os == "Ubuntu") {
+                    sh 'python tests/scripts/obtain_diff_test_build.py'
+                }
             }
         )
     }
