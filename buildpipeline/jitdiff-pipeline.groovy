@@ -11,11 +11,11 @@ simpleNode(params.os, 'latest') {
     stage('init test dependencies') {
         if (param.os == "Windows_NT") {
             bat 'init-tools.cmd'
-            bat 'python tests/scripts/build_jitutils.py --os Windows_NT'
+            bat 'python tests/scripts/jitdiff/build_jitutils.py --os Windows_NT'
         } else if (params.os == "Ubuntu") {
             // TODO: introduce concept of os group
             sh './init-tools.sh'
-            sh 'python tests/scripts/build_jitutils.py --os Linux'
+            sh 'python tests/scripts/jitdiff/build_jitutils.py --os Linux'
         }
     }
     stage('obtain diff inputs') {
@@ -23,10 +23,10 @@ simpleNode(params.os, 'latest') {
             "obtain base product" : {
                 switch (param.os) {
                     case "Windows_NT":
-                        bat 'python tests/scripts/obtain_base_product.py'
+                        bat 'python tests/scripts/jitdiff/obtain_base_product.py'
                         break;
                     case "Ubuntu":
-                        sh 'python tests/scripts/obtain_diff_product.py'
+                        sh 'python tests/scripts/jitdiff/obtain_diff_product.py'
                         break;
                 }
             },
@@ -34,14 +34,14 @@ simpleNode(params.os, 'latest') {
                 if (param.os == "Windows_NT") {
                     bat 'python tests\\scripts\\obtain_diff_product.py'
                 } else if (param.os == "Ubuntu") {
-                    sh 'python tests/scripts/obtain_diff_product.py'
+                    sh 'python tests/scripts/jitdiff/obtain_diff_product.py'
                 }
             },
             "obtain diff test build" : {
                 if (param.os == "Windows_NT") {
                     bat 'python tests\\scripts\\obtain_diff_test_build.py'
                 } else if (param.os == "Ubuntu") {
-                    sh 'python tests/scripts/obtain_diff_test_build.py'
+                    sh 'python tests/scripts/jitdiff/obtain_diff_test_build.py'
                 }
             }
         )
