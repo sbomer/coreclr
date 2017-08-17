@@ -12,7 +12,7 @@ simpleNode(params.os, 'latest') {
             sh './init-tools.sh'
             sh 'python tests/scripts/build_jitutils.py --os Linux'
         }
-    }
+    } 
     stage('obtain artifacts') {
         if (params.os == "Windows_NT") {
             bat 'Tools\\jitutils\\bin\\cijobs --help'
@@ -24,7 +24,7 @@ simpleNode(params.os, 'latest') {
         // TODO: with parameters? this is important.
         build job: 'build-pipeline', parameters: [
             string(name: 'os', value: "${params.os}")
-            ]
+        ]
     }
     stage('obtain artifacts') {
 //         copyArtifacts('build-pipeline') {

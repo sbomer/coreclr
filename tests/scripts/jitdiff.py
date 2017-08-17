@@ -168,7 +168,7 @@ def generate_overlay(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDi
     if ret != 0:
         sys.exit("failed to build overlay")
     return overlayDir
-    
+
 
 def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRoot, testBinDir, jitdiffDir, platform):
     crossgen = os.path.join(currentBinDir, executableName("crossgen", platform))
@@ -220,6 +220,10 @@ def getJenkinsJobName(platform, arch, config, isPr = False):
         jobName += "_prtest"
     return jobName
 
+
+
+
+# parse arguments and call function
 def main(argv):
     parser = argparse.ArgumentParser()
     required = parser.add_argument_group('required arguments')
@@ -261,7 +265,6 @@ def main(argv):
     jitutilsRepoPath = clone_jitutils(jitdiffDir)
     (cijobs, jitdiff, jitdasm) = build_jitutils(dotnetPath, jitutilsRepoPath, platform)
 
-
     # for PR commits, the jenkins job is run on a merge commit.
     # the first parent (^1) is the base commit
     # the second parent (^2) is the PR commit
@@ -289,10 +292,7 @@ def main(argv):
         os.makedirs(localJobDir)
     
     baseBinDir = obtain_product_build(cijobs, base_commit, localJobDir, jenkinsJobName, platform, arch, config)
-
-
     currentBinDir = obtain_product_build(cijobs, current_commit, localJobDir, jenkinsJobName, platform, arch, config)
-
     currentCoreclrDir = os.path.join(localJobDir, current_commit)
     
     windowsTestBinDir = obtain_windows_test_build(cijobs, currentCoreclrDir, current_commit, platform, arch, config)
@@ -307,7 +307,6 @@ def main(argv):
         coreRootDir = os.path.join(testBinDir, "Tests", "Core_Root")
 
     ret = runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRootDir, testBinDir, jitdiffDir, platform)
-
     # we need core_root to contain the dependencies of the stuff we're crossgen'ing.
     # usually this will be available whenever we have managed dlls as inputs anyway.
     # question is: what inputs do we use? everything!
