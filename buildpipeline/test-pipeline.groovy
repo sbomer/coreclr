@@ -29,6 +29,6 @@ simpleNode(params.os, 'latest') {
 //            buildSelector {
 //                latestSuccessful(true)
 //            }
-        }
+//        }
     }
 }
