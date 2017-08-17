@@ -57,6 +57,8 @@ testPipeline.triggerPipelineManually([os: "Windows_NT"])
 testPipeline.triggerPipelineManually([os: "Ubuntu"])
 
 def jitdiffPipeline = Pipeline.createPipeline(this, 'buildpipeline/jitdiff-pipeline.groovy')
+jitdiffPipeline.triggerPipelineManually([os: "Windows_NT"])
+jitdiffPipeline.triggerPipelineManually([os: "Ubuntu"])
 
 
 
