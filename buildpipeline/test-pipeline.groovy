@@ -9,7 +9,7 @@ simpleNode(params.os, 'latest') {
             bat 'init-tools.cmd'
             bat 'python tests\\scripts\\build_jitutils.py --os Windows_NT'
         } else if (params.os == "Ubuntu") {
-            sh 'init-tools.sh'
+            sh './init-tools.sh'
             sh 'python tests/scripts/build_jitutils.py --os Linux'
         }
     }
@@ -21,8 +21,10 @@ simpleNode(params.os, 'latest') {
         }
     }
     stage('run other job') {
-        // TODO: with parameters?
-        build job: 'build-pipeline'
+        // TODO: with parameters? this is important.
+        build job: 'build-pipeline', parameters: [
+            string(name: 'os', value: "${params.os}")
+            ]
     }
     stage('obtain artifacts') {
 //         copyArtifacts('build-pipeline') {
