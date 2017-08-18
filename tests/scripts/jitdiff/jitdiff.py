@@ -15,7 +15,18 @@ import argparse
 from build_jitutils import *
 
 
-def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, arch, config):
+# def copyArtifacts(cijobs, ciServer, jenkinsJobName, commit, outputDir) {
+#         ret = subprocess.call([cijobs, "copy",
+#                                "--server", ciServer,
+#                                "--job", jenkinsJobName,
+#                                "--commit", commit,
+#                                "--output", outputDir,
+#                                "--unzip"])
+#         return ret
+# }
+
+
+def obtain_product_build(cijobs, ciServer, commit, localJobDir, jenkinsJobName, platform, arch, config):
     outputDir = os.path.join(localJobDir, commit, "bin")
     outputBinDir = os.path.join(outputDir, "Product", platform + "." + arch + "." + config)
     if os.path.isdir(outputBinDir):
@@ -26,6 +37,7 @@ def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, 
     print(cijobs + " copy --job " + jenkinsJobName + " --commit " + commit + " --output " + outputDir)
     # todo: if this commit doesn't have a job? or if it's unsuccessful?
     ret = subprocess.call([cijobs, "copy",
+                           "--server", ciServer,
                            "--job", jenkinsJobName,
                            "--commit", commit,
                            "--output", outputDir,
@@ -34,7 +46,7 @@ def obtain_product_build(cijobs, commit, localJobDir, jenkinsJobName, platform, 
         sys.exit("failed to obtain product build for commit " + commit + ", job " + jenkinsJobName)
     return outputBinDir
 
-def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, win_config):
+def obtain_windows_test_build(cijobs, ciServer, coreclrDir, commit, platform, win_arch, win_config):
     # TODO: make this work for any platform's test build, once we don't depend on
     # windows to build tests. Ideally we would obtain tests from a
     # linux job for linux, etc.
@@ -49,6 +61,7 @@ def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, wi
     jenkinsJobName = "checked_windows_nt_bld"
     # TODO: which commit to download?
     command = [cijobs, "copy",
+               "--server", ciServer,
                "--job", jenkinsJobName,
                "--output", windowsTestBinDir,
                "--commit", commit,
@@ -76,7 +89,7 @@ def obtain_windows_test_build(cijobs, coreclrDir, commit, platform, win_arch, wi
         return windowsTestBinDir
 
 
-def obtain_unix_test_build(cijobs, coreclrDir, commit, localJobDir, jenkinsJobName, platform, arch, config):
+def obtain_unix_test_build(cijobs, ciServer, coreclrDir, commit, localJobDir, jenkinsJobName, platform, arch, config):
     outputDir = os.path.join(localJobDir, commit, "bin")
     unixTestBinDir = os.path.join(outputDir, "obj", platform + "." + arch + "." + config, "tests")
     if os.path.isdir(unixTestBinDir):
@@ -84,6 +97,7 @@ def obtain_unix_test_build(cijobs, coreclrDir, commit, localJobDir, jenkinsJobNa
         print("Assuming artifacts for unix test build were already downloaded")
         return unixTestBinDir
     ret = subprocess.call([cijobs, "copy",
+                           "--server", ciServer,
                            "--job", jenkinsJobName,
                            "--output", outputDir,
                            "--last_successful",
@@ -93,7 +107,7 @@ def obtain_unix_test_build(cijobs, coreclrDir, commit, localJobDir, jenkinsJobNa
         sys.exit("failed to obtain test build for commit " + commit)
     return unixTestBinDir
 
-def obtain_corefx_build(cijobs, coreclrDir, jenkinsJobName):
+def obtain_corefx_build(cijobs, ciServer, coreclrDir, jenkinsJobName):
     #for ubuntu, osjobname is 'ubuntu14.04'.
     #for other os's, osjobname is os.tolowercase
     #dotnet_corefx/master/osjobname_release94
@@ -105,6 +119,7 @@ def obtain_corefx_build(cijobs, coreclrDir, jenkinsJobName):
         return outputDir
     # TODO: which commit?
     ret = subprocess.call([cijobs, "copy",
+                           "--server", ciServer,
                            "--repo", "dotnet_corefx",
                            "--job", jenkinsJobName,
                            "--output", outputDir,
@@ -202,23 +217,40 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRoot, testBinDir
     return ret
 
 
-def getJenkinsJobName(platform, arch, config, isPr = False):
-    if platform == "Linux":
-        jobPlatform = "ubuntu"
-    elif platform == "Windows_NT":
-        jobPlatform = "windows_nt"
-    elif platform == "OSX":
-        jobPlatform = "osx10.12"
+def getJenkinsJobName(platform, arch, config, isPr = False, ciServer = "http://ci.dot.net"
+):
+    if ciServer == "http://ci3.dot.net" or ciServer == "http://ci3.dot.net/":
+        jobName = "build_Arch_" + arch + "_Os_" + platform + "_Config_" + config
+    elif ciServer == "http://ci.dot.net" or ciServer == "http://ci.dot.net/":
+        if platform == "Linux":
+            jobPlatform = "ubuntu"
+        elif platform == "Windows_NT":
+            jobPlatform = "windows_nt"
+        elif platform == "OSX":
+            jobPlatform = "osx10.12"
+        else:
+            assert(False)
+
+        assert(arch == "x64")
+        assert(config == "Checked")
+        
+        jobName = config.lower() + "_" + jobPlatform
     else:
-        assert(False)
-
-    assert(arch == "x64")
-    assert(config == "Checked")
-
-    jobName = config.lower() + "_" + jobPlatform
+        assert False
     if isPr:
         jobName += "_prtest"
     return jobName
+
+
+
+def get_diff_commit(revision):
+    diff_commit = subprocess.check_output(["git", "rev-parse", revision]).decode('utf-8').strip()
+    return diff_commit
+    
+def get_base_commit(revision):
+    base_commit = subprocess.check_output(["git", "rev-parse", revision + "^"]).decode('utf-8').strip()
+    return base_commit
+
 
 
 
@@ -226,14 +258,18 @@ def getJenkinsJobName(platform, arch, config, isPr = False):
 # parse arguments and call function
 def main(argv):
     parser = argparse.ArgumentParser()
-    required = parser.add_argument_group('required arguments')
+    required = parser.add_argument_group('arguments')
+    required.add_argument('action', metavar='ACTION', type=str, default="run_diff",
+                          help="action to execute (get_jitutils, get_base_product, get_diff_product, get_tests, or run_diff). Default is run_diff")
     required.add_argument('-o', '--os', type=str, default=None, help='operating system')
-    required.add_argument('-r', '--revision', type=str, default=None, help='revision')
+    required.add_argument('-r', '--revision', type=str, default="HEAD", help='revision')
+    required.add_argument('-s', '--server', type=str, default="http://ci.dot.net", help='ci server')
     args, unknown = parser.parse_known_args(argv)
 
     if unknown:
         print('Ignoring argument(s): ', ','.join(unknown))
 
+    # todo: validate os
     if args.os is None:
         print('Specify --os')
         return -1
@@ -242,10 +278,25 @@ def main(argv):
         print('specify --revision')
         return -1
 
+    if args.action is None:
+        print('specify action')
+        return -1
+    if not (args.action == "get_jitutils" or
+            args.action == "get_base_product" or
+            args.action == "get_diff_product" or
+            args.action == "get_tests" or
+            args.action == "run_diff"):
+        print('invalid action')
+        return -1
+
     # TODO: determine os if not passed
     platform = args.os
     # TODO: determine revision if not passed
     revision = args.revision
+    action = args.action
+    ciServer = args.server
+    print('ci server: ' + ciServer)
+    print('action: ' + action)
 
     # TODO: fix: script expects to be run from coreclr repo root
     coreclrDir = os.path.abspath(".")
@@ -254,8 +305,10 @@ def main(argv):
     # platform = "Windows_NT"
     arch = "x64"
     config = "Checked"
-    jenkinsJobName = getJenkinsJobName(platform, arch, config)
-    jenkinsJobNamePR = getJenkinsJobName(platform, arch, config, isPr = True)
+    jenkinsJobName = getJenkinsJobName(platform, arch, config, ciServer = ciServer)
+    print "jenkins job name: " + jenkinsJobName
+    jenkinsJobNamePR = getJenkinsJobName(platform, arch, config, isPr = True, ciServer = ciServer)
+    print "jenkins pr job name: " + jenkinsJobNamePR
     
     jitdiffDir = os.path.join(coreclrDir, "jitdiff")
     if not os.path.isdir(jitdiffDir):
@@ -264,6 +317,8 @@ def main(argv):
     dotnetPath = locate_dotnet(coreclrDir, platform)
     jitutilsRepoPath = clone_jitutils(jitdiffDir)
     (cijobs, jitdiff, jitdasm) = build_jitutils(dotnetPath, jitutilsRepoPath, platform)
+    if action == "get_jitutils":
+        return 0
 
     # for PR commits, the jenkins job is run on a merge commit.
     # the first parent (^1) is the base commit
@@ -278,11 +333,10 @@ def main(argv):
     # should be fine in ci though.
     # it should be possible to check out a github PR commit, and diff it with the current master (the would-be merge base?)
     # let's try that instead for now, but the PR jobs should definitely use the base commit of the merge.
-    
-    current_commit = subprocess.check_output(["git", "rev-parse", revision]).decode('utf-8').strip()
-    print("diff commit: " + current_commit)
-    base_commit = subprocess.check_output(["git", "rev-parse", "master"]).decode('utf-8').strip()
-    base_commit = subprocess.check_output(["git", "rev-parse", revision + "^"]).decode('utf-8').strip()
+
+    diff_commit = get_diff_commit(revision)
+    print("diff commit: " + diff_commit)
+    base_commit = get_base_commit(revision)
     print("base commit: " + base_commit)
     # test joe's pr: https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu_prtest/9654/
     # https://ci.dot.net/job/dotnet_coreclr/job/master/job/checked_ubuntu/9603/
@@ -290,17 +344,25 @@ def main(argv):
     localJobDir = os.path.join(jitdiffDir, "artifacts")
     if not os.path.isdir(localJobDir):
         os.makedirs(localJobDir)
+
+    baseBinDir = obtain_product_build(cijobs, ciServer, base_commit, localJobDir, jenkinsJobName, platform, arch, config)
+    if action == "get_base":
+        return 0
     
-    baseBinDir = obtain_product_build(cijobs, base_commit, localJobDir, jenkinsJobName, platform, arch, config)
-    currentBinDir = obtain_product_build(cijobs, current_commit, localJobDir, jenkinsJobName, platform, arch, config)
-    currentCoreclrDir = os.path.join(localJobDir, current_commit)
+    currentBinDir = obtain_product_build(cijobs, ciServer, diff_commit, localJobDir, jenkinsJobName, platform, arch, config)
+    if action == "get_diff":
+        return 0
+        
+    currentCoreclrDir = os.path.join(localJobDir, diff_commit)
     
-    windowsTestBinDir = obtain_windows_test_build(cijobs, currentCoreclrDir, current_commit, platform, arch, config)
+    windowsTestBinDir = obtain_windows_test_build(cijobs, ciServer, currentCoreclrDir, diff_commit, platform, arch, config)
     testBinDir = windowsTestBinDir
+    if action == "get_tests":
+        return 0
 
     if isUnix(platform):
-        unixTestBinDir = obtain_unix_test_build(cijobs, currentCoreclrDir, current_commit, localJobDir, jenkinsJobNamePR, platform, arch, config)
-        corefxBinDir = obtain_corefx_build(cijobs, currentCoreclrDir, jenkinsJobName = "ubuntu14.04_release")
+        unixTestBinDir = obtain_unix_test_build(cijobs, ciServer, currentCoreclrDir, diff_commit, localJobDir, jenkinsJobNamePR, platform, arch, config)
+        corefxBinDir = obtain_corefx_build(cijobs, ciServer, currentCoreclrDir, jenkinsJobName = "ubuntu14.04_release")
         overlayDir = generate_overlay(coreclrDir, currentBinDir, windowsTestBinDir, unixTestBinDir, corefxBinDir)
         coreRootDir = overlayDir
     else:
