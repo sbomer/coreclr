@@ -166,3 +166,10 @@ def setupJob(PipelineJobDefinition j) {
 
 generateJobs().each { j -> setupJob(j) }
 
+
+def project = GithubProject
+def branch = GithubBranchName
+print project
+print branch
+folder('testfolder')
+Utilities.addStandardFolderView(this, 'testfolder', project)
