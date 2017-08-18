@@ -220,7 +220,7 @@ def runJitdiff(jitdiff, jitdasm, currentBinDir, baseBinDir, coreRoot, testBinDir
 def getJenkinsJobName(platform, arch, config, isPr = False, ciServer = "http://ci.dot.net"
 ):
     if ciServer == "http://ci3.dot.net" or ciServer == "http://ci3.dot.net/":
-        jobName = "build_Arch_" + arch + "_Os_" + platform + "_Config_" + config
+        jobName = "build-pipeline_arch_" + arch + "+os_" + platform + "+config_" + config
     elif ciServer == "http://ci.dot.net" or ciServer == "http://ci.dot.net/":
         if platform == "Linux":
             jobPlatform = "ubuntu"
