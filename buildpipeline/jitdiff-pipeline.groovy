@@ -24,22 +24,22 @@ simpleNode(params.os, 'latest') {
             // TODO: introduce concept of os group
             sh './init-tools.sh'
         }
-        runCommand("python tests/scripts/jitdiff/jitdiff.py get_jitutils --os ${params.os}")
+        runCommand("python tests/scripts/jitdiff/jitdiff.py get_jitutils --os ${params.os} --server 'http:/ci3.dot.net'")
     }
     stage('obtain diff inputs') {
         parallel (
             "obtain base product build" : {
-                runCommand("python tests/scripts/jitdiff/jitdiff.py get_base_product --os ${params.os}")
+                runCommand("python tests/scripts/jitdiff/jitdiff.py get_base_product --os ${params.os} --server 'http://ci3.dot.net'")
             },
             "obtain diff product build" : {
-                runCommand("python tests/scripts/jitdiff/jitdiff.py get_diff_product --os ${params.os}")
+                runCommand("python tests/scripts/jitdiff/jitdiff.py get_diff_product --os ${params.os} --server 'http://ci3.dot.net'")
             },
             "obtain diff test build" : {
-                runCommand("python tests/scripts/jitdiff/jitdiff.py get_tests --os ${params.os}")
+                runCommand("python tests/scripts/jitdiff/jitdiff.py get_tests --os ${params.os} --server 'http://ci3.dot.net'")
             }
         )
     }
     stage('run diff') {
-        runCommand("python tests/scripts/jitdiff/jitdiff.py run_diff --os ${params.os}")
+        runCommand("python tests/scripts/jitdiff/jitdiff.py run_diff --os ${params.os} --server 'http://ci3.dot.net'")
     }
 }
