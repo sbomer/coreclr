@@ -24,7 +24,7 @@ simpleNode(params.os, 'latest') {
             // TODO: introduce concept of os group
             sh './init-tools.sh'
         }
-        runCommand("python tests/scripts/jitdiff/jitdiff.py get_jitutils --os ${params.os} --server 'http:/ci3.dot.net'")
+        runCommand("python tests/scripts/jitdiff/jitdiff.py get_jitutils --os ${params.os} --server 'http://ci3.dot.net'")
     }
     stage('obtain diff inputs') {
         parallel (
