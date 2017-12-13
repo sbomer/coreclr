@@ -2846,11 +2846,10 @@ void InitializeClrNotifications()
 
 #if defined(FEATURE_GDBJIT)
 #include "gdbjit.h"
-__declspec(thread) bool tls_isSymReaderInProgress = false;
 #endif // FEATURE_GDBJIT
 
 // called from the runtime
-void DACNotify::DoJITNotification(MethodDesc *MethodDescPtr)
+void DACNotify::DoJITNotification(MethodDesc *MethodDescPtr, TADDR NativeCodeLocation)
 {
     CONTRACTL
     {
@@ -2860,16 +2859,9 @@ void DACNotify::DoJITNotification(MethodDesc *MethodDescPtr)
         MODE_PREEMPTIVE;
     }
     CONTRACTL_END;
-#if defined(FEATURE_GDBJIT) && defined(FEATURE_PAL) && !defined(CROSSGEN_COMPILE)
-    if(!tls_isSymReaderInProgress)
-    {
-        tls_isSymReaderInProgress = true;
-        NotifyGdb::MethodCompiled(MethodDescPtr);
-        tls_isSymReaderInProgress = false;
-    }
-#endif    
-    TADDR Args[2] = { JIT_NOTIFICATION, (TADDR) MethodDescPtr };
-    DACNotifyExceptionHelper(Args, 2);
+
+    TADDR Args[3] = { JIT_NOTIFICATION2, (TADDR) MethodDescPtr, NativeCodeLocation };
+    DACNotifyExceptionHelper(Args, 3);
 }
 
 void DACNotify::DoJITPitchingNotification(MethodDesc *MethodDescPtr)
@@ -2994,16 +2986,17 @@ int DACNotify::GetType(TADDR Args[])
     // Type is an enum, and will thus fit into an int.
     return static_cast<int>(Args[0]);
 }
-    
-BOOL DACNotify::ParseJITNotification(TADDR Args[], TADDR& MethodDescPtr)
+
+BOOL DACNotify::ParseJITNotification(TADDR Args[], TADDR& MethodDescPtr, TADDR& NativeCodeLocation)
 {
-    _ASSERTE(Args[0] == JIT_NOTIFICATION);
-    if (Args[0] != JIT_NOTIFICATION)
+    _ASSERTE(Args[0] == JIT_NOTIFICATION2);
+    if (Args[0] != JIT_NOTIFICATION2)
     {
         return FALSE;
     }
 
     MethodDescPtr = Args[1];
+    NativeCodeLocation = Args[2];
 
     return TRUE;
 }

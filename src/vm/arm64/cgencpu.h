@@ -79,6 +79,18 @@ typedef INT64 StackElemType;
 // !! This expression assumes STACK_ELEM_SIZE is a power of 2.
 #define StackElemSize(parmSize) (((parmSize) + STACK_ELEM_SIZE - 1) & ~((ULONG)(STACK_ELEM_SIZE - 1)))
 
+//
+// JIT HELPERS.
+//
+// Create alias for optimized implementations of helpers provided on this platform
+//
+#define JIT_GetSharedGCStaticBase           JIT_GetSharedGCStaticBase_SingleAppDomain
+#define JIT_GetSharedNonGCStaticBase        JIT_GetSharedNonGCStaticBase_SingleAppDomain
+#define JIT_GetSharedGCStaticBaseNoCtor     JIT_GetSharedGCStaticBaseNoCtor_SingleAppDomain
+#define JIT_GetSharedNonGCStaticBaseNoCtor  JIT_GetSharedNonGCStaticBaseNoCtor_SingleAppDomain
+
+#define JIT_Stelem_Ref                      JIT_Stelem_Ref
+
 //**********************************************************************
 // Frames
 //**********************************************************************
@@ -427,10 +439,8 @@ public:
     void EmitUnboxMethodStub(MethodDesc* pRealMD);
     void EmitCallManagedMethod(MethodDesc *pMD, BOOL fTailCall);
     void EmitCallLabel(CodeLabel *target, BOOL fTailCall, BOOL fIndirect);
-    void EmitSecureDelegateInvoke(UINT_PTR hash);
-    static UINT_PTR HashMulticastInvoke(MetaSig* pSig);
+
     void EmitShuffleThunk(struct ShuffleEntry *pShuffleEntryArray);
-    void EmitGetThreadInlined(IntReg Xt);
 
 #ifdef _DEBUG
     void EmitNop() { Emit32(0xD503201F); }

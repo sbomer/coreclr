@@ -11,7 +11,6 @@
 **
 ===========================================================*/
 
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -22,7 +21,7 @@ namespace System
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct Single : IComparable, IConvertible, IFormattable, IComparable<Single>, IEquatable<Single>
+    public struct Single : IComparable, IConvertible, IFormattable, IComparable<Single>, IEquatable<Single>, ISpanFormattable
     {
         private float m_value; // Do not rename (binary serialization)
 
@@ -40,7 +39,6 @@ namespace System
         internal const float NegativeZero = (float)-0.0;
 
         /// <summary>Determines whether the specified value is finite (zero, subnormal, or normal).</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsFinite(float f)
@@ -50,7 +48,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is infinite.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsInfinity(float f)
@@ -60,7 +57,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is NaN.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsNaN(float f)
@@ -70,7 +66,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is negative.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsNegative(float f)
@@ -80,7 +75,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is negative infinity.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsNegativeInfinity(float f)
@@ -89,7 +83,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is normal.</summary>
-        [Pure]
         [NonVersionable]
         // This is probably not worth inlining, it has branches and should be rarely called
         public unsafe static bool IsNormal(float f)
@@ -100,7 +93,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is positive infinity.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsPositiveInfinity(float f)
@@ -109,7 +101,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is subnormal.</summary>
-        [Pure]
         [NonVersionable]
         // This is probably not worth inlining, it has branches and should be rarely called
         public unsafe static bool IsSubnormal(float f)
@@ -236,26 +227,27 @@ namespace System
 
         public override String ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatSingle(m_value, null, NumberFormatInfo.CurrentInfo);
         }
 
         public String ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatSingle(m_value, null, NumberFormatInfo.GetInstance(provider));
         }
 
         public String ToString(String format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatSingle(m_value, format, NumberFormatInfo.CurrentInfo);
         }
 
         public String ToString(String format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatSingle(m_value, format, NumberFormatInfo.GetInstance(provider));
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            return Number.TryFormatSingle(m_value, format, NumberFormatInfo.GetInstance(provider), destination, out charsWritten);
         }
 
         // Parses a float from a String in the given style.  If
@@ -268,32 +260,48 @@ namespace System
         //
         public static float Parse(String s)
         {
-            return Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseSingle(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo);
         }
 
         public static float Parse(String s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return Parse(s, style, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseSingle(s, style, NumberFormatInfo.CurrentInfo);
         }
 
         public static float Parse(String s, IFormatProvider provider)
         {
-            return Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseSingle(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.GetInstance(provider));
         }
 
         public static float Parse(String s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return Parse(s, style, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseSingle(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
-        private static float Parse(String s, NumberStyles style, NumberFormatInfo info)
+        public static float Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
         {
-            return Number.ParseSingle(s, style, info);
+            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            return Number.ParseSingle(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
         public static Boolean TryParse(String s, out Single result)
+        {
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, out float result)
         {
             return TryParse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo, out result);
         }
@@ -301,34 +309,44 @@ namespace System
         public static Boolean TryParse(String s, NumberStyles style, IFormatProvider provider, out Single result)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
-        }
 
-        private static Boolean TryParse(String s, NumberStyles style, NumberFormatInfo info, out Single result)
-        {
             if (s == null)
             {
                 result = 0;
                 return false;
             }
+
+            return TryParse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out float result)
+        {
+            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        private static Boolean TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out Single result)
+        {
             bool success = Number.TryParseSingle(s, style, info, out result);
             if (!success)
             {
-                String sTrim = s.Trim();
-                if (sTrim.Equals(info.PositiveInfinitySymbol))
+                ReadOnlySpan<char> sTrim = s.Trim();
+                if (StringSpanHelpers.Equals(sTrim, info.PositiveInfinitySymbol))
                 {
                     result = PositiveInfinity;
                 }
-                else if (sTrim.Equals(info.NegativeInfinitySymbol))
+                else if (StringSpanHelpers.Equals(sTrim, info.NegativeInfinitySymbol))
                 {
                     result = NegativeInfinity;
                 }
-                else if (sTrim.Equals(info.NaNSymbol))
+                else if (StringSpanHelpers.Equals(sTrim, info.NaNSymbol))
                 {
                     result = NaN;
                 }
                 else
+                {
                     return false; // We really failed
+                }
             }
             return true;
         }

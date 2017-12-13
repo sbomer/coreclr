@@ -13,7 +13,6 @@ namespace System
     using CultureInfo = System.Globalization.CultureInfo;
     using FieldInfo = System.Reflection.FieldInfo;
     using System.Runtime.Versioning;
-    using System.Diagnostics.Contracts;
 
     [CLSCompliant(false)]
     [System.Runtime.Versioning.NonVersionable] // This only applies to field layout
@@ -29,7 +28,6 @@ namespace System
                 throw new ArgumentNullException(nameof(target));
             if (flds == null)
                 throw new ArgumentNullException(nameof(flds));
-            Contract.EndContractBlock();
             if (flds.Length == 0)
                 throw new ArgumentException(SR.Arg_ArrayZeroError);
 
@@ -99,7 +97,7 @@ namespace System
         {
             get
             {
-                return Value.IsNull() && Type.IsNull();
+                return Value == IntPtr.Zero && Type == IntPtr.Zero;
             }
         }
 

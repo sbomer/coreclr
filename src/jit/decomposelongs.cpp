@@ -274,31 +274,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     // element into two elements: one for each half of the GT_LONG.
     if ((use.Def()->OperGet() == GT_LONG) && !use.IsDummyUse() && (use.User()->OperGet() == GT_FIELD_LIST))
     {
-        GenTreeOp* value = use.Def()->AsOp();
-        Range().Remove(value);
-
-        // The node returned by `use.User()` is the head of the field list. We need to find the actual node that uses
-        // the `GT_LONG` so that we can split it.
-        GenTreeFieldList* listNode = use.User()->AsFieldList();
-        for (; listNode != nullptr; listNode = listNode->Rest())
-        {
-            if (listNode->Current() == value)
-            {
-                break;
-            }
-        }
-
-        assert(listNode != nullptr);
-        GenTree* rest = listNode->gtOp2;
-
-        GenTreeFieldList* loNode = listNode;
-        loNode->gtOp1            = value->gtOp1;
-        loNode->gtFieldType      = TYP_INT;
-
-        GenTreeFieldList* hiNode =
-            new (m_compiler, GT_FIELD_LIST) GenTreeFieldList(value->gtOp2, loNode->gtFieldOffset + 4, TYP_INT, loNode);
-
-        hiNode->gtOp2 = rest;
+        DecomposeFieldList(use.User()->AsFieldList(), use.Def()->AsOp());
     }
 
 #ifdef DEBUG
@@ -725,6 +701,49 @@ GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
 }
 
 //------------------------------------------------------------------------
+// DecomposeFieldList: Decompose GT_FIELD_LIST.
+//
+// Arguments:
+//    listNode - the head of the FIELD_LIST that contains the given GT_LONG.
+//    longNode - the node to decompose
+//
+// Return Value:
+//    The next node to process.
+//
+// Notes:
+//    Split a LONG field list element into two elements: one for each half of the GT_LONG.
+//
+GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* listNode, GenTreeOp* longNode)
+{
+    assert(longNode->OperGet() == GT_LONG);
+    // We are given the head of the field list. We need to find the actual node that uses
+    // the `GT_LONG` so that we can split it.
+    for (; listNode != nullptr; listNode = listNode->Rest())
+    {
+        if (listNode->Current() == longNode)
+        {
+            break;
+        }
+    }
+    assert(listNode != nullptr);
+
+    Range().Remove(longNode);
+
+    GenTree* rest = listNode->gtOp2;
+
+    GenTreeFieldList* loNode = listNode;
+    loNode->gtType           = TYP_INT;
+    loNode->gtOp1            = longNode->gtOp1;
+    loNode->gtFieldType      = TYP_INT;
+
+    GenTreeFieldList* hiNode =
+        new (m_compiler, GT_FIELD_LIST) GenTreeFieldList(longNode->gtOp2, loNode->gtFieldOffset + 4, TYP_INT, loNode);
+    hiNode->gtOp2 = rest;
+
+    return listNode->gtNext;
+}
+
+//------------------------------------------------------------------------
 // DecomposeCall: Decompose GT_CALL.
 //
 // Arguments:
@@ -933,13 +952,27 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
     loResult->gtOp.gtOp1 = loOp1;
 
     GenTree* zero = m_compiler->gtNewZeroConNode(TYP_INT);
+
 #if defined(_TARGET_X86_)
+
     GenTree* hiAdjust = m_compiler->gtNewOperNode(GT_ADD_HI, TYP_INT, hiOp1, zero);
     GenTree* hiResult = m_compiler->gtNewOperNode(GT_NEG, TYP_INT, hiAdjust);
     Range().InsertAfter(loResult, zero, hiAdjust, hiResult);
+
+    loResult->gtFlags |= GTF_SET_FLAGS;
+    hiAdjust->gtFlags |= GTF_USE_FLAGS;
+
 #elif defined(_TARGET_ARM_)
+
+    // We tend to use "movs" to load zero to a register, and that sets the flags, so put the
+    // zero before the loResult, which is setting the flags needed by GT_SUB_HI.
     GenTree* hiResult = m_compiler->gtNewOperNode(GT_SUB_HI, TYP_INT, zero, hiOp1);
-    Range().InsertAfter(loResult, zero, hiResult);
+    Range().InsertBefore(loResult, zero);
+    Range().InsertAfter(loResult, hiResult);
+
+    loResult->gtFlags |= GTF_SET_FLAGS;
+    hiResult->gtFlags |= GTF_USE_FLAGS;
+
 #endif
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
@@ -992,10 +1025,13 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
 
     if ((oper == GT_ADD) || (oper == GT_SUB))
     {
-        if (loResult->gtOverflow())
+        loResult->gtFlags |= GTF_SET_FLAGS;
+        hiResult->gtFlags |= GTF_USE_FLAGS;
+
+        if ((loResult->gtFlags & GTF_OVERFLOW) != 0)
         {
-            hiResult->gtFlags |= GTF_OVERFLOW;
-            loResult->gtFlags &= ~GTF_OVERFLOW;
+            hiResult->gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
+            loResult->gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
         }
         if (loResult->gtFlags & GTF_UNSIGNED)
         {
@@ -1058,6 +1094,10 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
         {
             GenTree* next = shift->gtNext;
             // Remove shift and don't do anything else.
+            if (shift->IsUnusedValue())
+            {
+                gtLong->SetUnusedValue();
+            }
             Range().Remove(shift);
             use.ReplaceWith(m_compiler, gtLong);
             return next;
@@ -1172,7 +1212,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                         //
                         // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything
                         // that feeds the lo operand while there are no side effects)
-                        if ((loOp1->gtFlags & GTF_ALL_EFFECT) == 0)
+                        if ((loOp1->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
                         {
                             Range().Remove(loOp1, true);
                         }
@@ -1232,7 +1272,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                     //
                     // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                     // feeds the lo operand while there are no side effects)
-                    if ((loOp1->gtFlags & GTF_ALL_EFFECT) == 0)
+                    if ((loOp1->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
                     {
                         Range().Remove(loOp1, true);
                     }
@@ -1330,7 +1370,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                     //
                     // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                     // feeds the lo operand while there are no side effects)
-                    if ((loOp1->gtFlags & GTF_ALL_EFFECT) == 0)
+                    if ((loOp1->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
                     {
                         Range().Remove(loOp1, true);
                     }
@@ -1426,7 +1466,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
         GenTreeArgList* argList = m_compiler->gtNewArgList(loOp1, hiOp1, shiftByOp);
 
-        GenTree* call = m_compiler->gtNewHelperCallNode(helper, TYP_LONG, 0, argList);
+        GenTree* call = m_compiler->gtNewHelperCallNode(helper, TYP_LONG, argList);
         call->gtFlags |= shift->gtFlags & GTF_ALL_EFFECT;
 
         if (shift->IsUnusedValue())
@@ -1512,6 +1552,11 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
         loResult           = hiOp1Use.Def();
         gtLong->gtOp.gtOp1 = loResult;
         gtLong->gtOp.gtOp2 = hiResult;
+
+        if (tree->IsUnusedValue())
+        {
+            gtLong->SetUnusedValue();
+        }
 
         GenTree* next = tree->gtNext;
         // Remove tree and don't do anything else.
@@ -1976,12 +2021,6 @@ genTreeOps DecomposeLongs::GetHiOper(genTreeOps oper)
             break;
         case GT_SUB:
             return GT_SUB_HI;
-            break;
-        case GT_DIV:
-            return GT_DIV_HI;
-            break;
-        case GT_MOD:
-            return GT_MOD_HI;
             break;
         case GT_OR:
             return GT_OR;

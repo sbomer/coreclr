@@ -320,18 +320,25 @@ DECLARE_API(IP2MD)
 // (MAX_STACK_FRAMES is also used by x86 to prevent infinite loops in _EFN_StackTrace)
 #define MAX_STACK_FRAMES 1000
 
-#ifdef _TARGET_WIN64_
+#if defined(_TARGET_WIN64_)
+#define DEBUG_STACK_CONTEXT AMD64_CONTEXT
+#elif defined(_TARGET_ARM_) // _TARGET_WIN64_
+#define DEBUG_STACK_CONTEXT ARM_CONTEXT
+#elif defined(_TARGET_X86_) // _TARGET_ARM_
+#define DEBUG_STACK_CONTEXT X86_CONTEXT
+#endif // _TARGET_X86_
 
+#ifdef DEBUG_STACK_CONTEXT
 // I use a global set of frames for stack walking on win64 because the debugger's
 // GetStackTrace function doesn't provide a way to find out the total size of a stackwalk,
 // and I'd like to have a reasonably big maximum without overflowing the stack by declaring
 // the buffer locally and I also want to get a managed trace in a low memory environment
 // (so no dynamic allocation if possible).
 DEBUG_STACK_FRAME g_Frames[MAX_STACK_FRAMES];
-AMD64_CONTEXT g_X64FrameContexts[MAX_STACK_FRAMES];
+DEBUG_STACK_CONTEXT g_FrameContexts[MAX_STACK_FRAMES];
 
 static HRESULT
-GetContextStackTrace(PULONG pnumFrames)
+GetContextStackTrace(ULONG osThreadId, PULONG pnumFrames)
 {
     PDEBUG_CONTROL4 debugControl4;
     HRESULT hr;
@@ -339,7 +346,15 @@ GetContextStackTrace(PULONG pnumFrames)
     // Do we have advanced capability?
     if ((hr = g_ExtControl->QueryInterface(__uuidof(IDebugControl4), (void **)&debugControl4)) == S_OK)
     {
-        // GetContextStackTrace fills g_X64FrameContexts as an array of 
+        ULONG oldId, id;
+        g_ExtSystem->GetCurrentThreadId(&oldId);
+
+        if ((hr = g_ExtSystem->GetThreadIdBySystemId(osThreadId, &id)) != S_OK) {
+            return hr;
+        }
+        g_ExtSystem->SetCurrentThreadId(id);
+
+        // GetContextStackTrace fills g_FrameContexts as an array of
         // contexts packed as target architecture contexts. We cannot 
         // safely cast this as an array of CROSS_PLATFORM_CONTEXT, since 
         // sizeof(CROSS_PLATFORM_CONTEXT) != sizeof(TGT_CONTEXT)
@@ -348,17 +363,18 @@ GetContextStackTrace(PULONG pnumFrames)
             0,
             g_Frames,
             MAX_STACK_FRAMES,
-            g_X64FrameContexts,
+            g_FrameContexts,
             MAX_STACK_FRAMES*g_targetMachine->GetContextSize(),
             g_targetMachine->GetContextSize(),
             pnumFrames);
 
+        g_ExtSystem->SetCurrentThreadId(oldId);
         debugControl4->Release();
     }
     return hr;
 }
 
-#endif // _TARGET_WIN64_
+#endif // DEBUG_STACK_CONTEXT
 
 /**********************************************************************\
 * Routine Description:                                                 *
@@ -418,6 +434,9 @@ void DumpStackInternal(DumpStackFlag *pDSFlag)
     DumpStackWorker(*pDSFlag);
 }
 
+#if defined(FEATURE_PAL) && defined(_TARGET_AMD64_)
+static BOOL UnwindStackFrames(ULONG32 osThreadId);
+#endif
 
 DECLARE_API(DumpStack)
 {
@@ -431,11 +450,13 @@ DECLARE_API(DumpStack)
     DSFlag.top = 0;
     DSFlag.end = 0;
 
+    BOOL unwind = FALSE;
     BOOL dml = FALSE;
     CMDOption option[] = {
         // name, vptr, type, hasValue
         {"-EE", &DSFlag.fEEonly, COBOOL, FALSE},
         {"-n",  &DSFlag.fSuppressSrcInfo, COBOOL, FALSE},
+        {"-unwind",  &unwind, COBOOL, FALSE},
 #ifndef FEATURE_PAL
         {"/d", &dml, COBOOL, FALSE}
 #endif
@@ -459,13 +480,22 @@ DECLARE_API(DumpStack)
 
     EnableDMLHolder enabledml(dml);
 
-    ULONG id = 0;
-    g_ExtSystem->GetCurrentThreadSystemId(&id);
-    ExtOut("OS Thread Id: 0x%x ", id);
+    ULONG sysId = 0, id = 0;
+    g_ExtSystem->GetCurrentThreadSystemId(&sysId);
+    ExtOut("OS Thread Id: 0x%x ", sysId);
     g_ExtSystem->GetCurrentThreadId(&id);
     ExtOut("(%d)\n", id);
 
-    DumpStackInternal(&DSFlag);
+#if defined(FEATURE_PAL) && defined(_TARGET_AMD64_)
+    if (unwind)
+    {
+        UnwindStackFrames(sysId);
+    }
+    else
+#endif
+    {
+        DumpStackInternal(&DSFlag);
+    }
     return Status;
 }
 
@@ -746,7 +776,7 @@ BOOL GatherDynamicInfo(TADDR DynamicMethodObj, DacpObjectData *codeArray,
     if (objData.Request(g_sos, TO_CDADDR(DynamicMethodObj)) != S_OK)
         return bRet;
     
-    iOffset = GetObjFieldOffset(DynamicMethodObj, objData.MethodTable, W("m_resolver"));
+    iOffset = GetObjFieldOffset(TO_CDADDR(DynamicMethodObj), objData.MethodTable, W("m_resolver"));
     if (iOffset <= 0)
         return bRet;
     
@@ -757,7 +787,7 @@ BOOL GatherDynamicInfo(TADDR DynamicMethodObj, DacpObjectData *codeArray,
     if (objData.Request(g_sos, TO_CDADDR(resolverPtr)) != S_OK)
         return bRet;
     
-    iOffset = GetObjFieldOffset(resolverPtr, objData.MethodTable, W("m_code"));
+    iOffset = GetObjFieldOffset(TO_CDADDR(resolverPtr), objData.MethodTable, W("m_code"));
     if (iOffset <= 0)
         return bRet;
 
@@ -772,7 +802,7 @@ BOOL GatherDynamicInfo(TADDR DynamicMethodObj, DacpObjectData *codeArray,
         return bRet;
         
     // We also need the resolution table
-    iOffset = GetObjFieldOffset (resolverPtr, objData.MethodTable, W("m_scope"));
+    iOffset = GetObjFieldOffset (TO_CDADDR(resolverPtr), objData.MethodTable, W("m_scope"));
     if (iOffset <= 0)
         return bRet;
 
@@ -783,7 +813,7 @@ BOOL GatherDynamicInfo(TADDR DynamicMethodObj, DacpObjectData *codeArray,
     if (objData.Request(g_sos, TO_CDADDR(scopePtr)) != S_OK)
         return bRet;
     
-    iOffset = GetObjFieldOffset (scopePtr, objData.MethodTable, W("m_tokens"));
+    iOffset = GetObjFieldOffset (TO_CDADDR(scopePtr), objData.MethodTable, W("m_tokens"));
     if (iOffset <= 0)
         return bRet;
 
@@ -794,7 +824,7 @@ BOOL GatherDynamicInfo(TADDR DynamicMethodObj, DacpObjectData *codeArray,
     if (objData.Request(g_sos, TO_CDADDR(tokensPtr)) != S_OK)
         return bRet;
     
-    iOffset = GetObjFieldOffset(tokensPtr, objData.MethodTable, W("_items"));
+    iOffset = GetObjFieldOffset(TO_CDADDR(tokensPtr), objData.MethodTable, W("_items"));
     if (iOffset <= 0)
         return bRet;
 
@@ -1441,7 +1471,7 @@ HRESULT PrintVC(TADDR taMT, TADDR taObject, BOOL bPrintFields = TRUE)
 void PrintRuntimeTypeInfo(TADDR p_rtObject, const DacpObjectData & rtObjectData)
 {
     // Get the method table
-    int iOffset = GetObjFieldOffset(p_rtObject, rtObjectData.MethodTable, W("m_handle"));
+    int iOffset = GetObjFieldOffset(TO_CDADDR(p_rtObject), rtObjectData.MethodTable, W("m_handle"));
     if (iOffset > 0)
     {            
         TADDR mtPtr;
@@ -1513,7 +1543,7 @@ HRESULT PrintObj(TADDR taObj, BOOL bPrintFields = TRUE)
     if (_wcscmp(obj.GetTypeName(), W("System.RuntimeType+RuntimeTypeCache")) == 0)
     {
         // Get the method table
-        int iOffset = GetObjFieldOffset (taObj, objData.MethodTable, W("m_runtimeType"));
+        int iOffset = GetObjFieldOffset (TO_CDADDR(taObj), objData.MethodTable, W("m_runtimeType"));
         if (iOffset > 0)
         {            
             TADDR rtPtr;
@@ -1684,7 +1714,7 @@ HRESULT PrintPermissionSet (TADDR p_PermSet)
 
     // Walk the fields, printing some fields in a special way.
 
-    int iOffset = GetObjFieldOffset (p_PermSet, PermSetData.MethodTable, W("m_Unrestricted"));
+    int iOffset = GetObjFieldOffset (TO_CDADDR(p_PermSet), PermSetData.MethodTable, W("m_Unrestricted"));
     
     if (iOffset > 0)        
     {
@@ -1696,7 +1726,7 @@ HRESULT PrintPermissionSet (TADDR p_PermSet)
             ExtOut("Unrestricted: FALSE\n");
     }
 
-    iOffset = GetObjFieldOffset (p_PermSet, PermSetData.MethodTable, W("m_permSet"));
+    iOffset = GetObjFieldOffset (TO_CDADDR(p_PermSet), PermSetData.MethodTable, W("m_permSet"));
     if (iOffset > 0)
     {
         TADDR tbSetPtr;
@@ -1710,7 +1740,7 @@ HRESULT PrintPermissionSet (TADDR p_PermSet)
                 return Status;
             }
 
-            iOffset = GetObjFieldOffset (tbSetPtr, tbSetData.MethodTable, W("m_Set"));
+            iOffset = GetObjFieldOffset (TO_CDADDR(tbSetPtr), tbSetData.MethodTable, W("m_Set"));
             if (iOffset > 0)
             {
                 DWORD_PTR PermsArrayPtr;
@@ -1730,7 +1760,7 @@ HRESULT PrintPermissionSet (TADDR p_PermSet)
                 }
             }
 
-            iOffset = GetObjFieldOffset (tbSetPtr, tbSetData.MethodTable, W("m_Obj"));
+            iOffset = GetObjFieldOffset (TO_CDADDR(tbSetPtr), tbSetData.MethodTable, W("m_Obj"));
             if (iOffset > 0)
             {
                 DWORD_PTR PermObjPtr;
@@ -1939,7 +1969,7 @@ HRESULT PrintArray(DacpObjectData& objData, DumpArrayFlags& flags, BOOL isPermSe
 
             if (isElementValueType)
             {
-                DMLOut( " %s\n", DMLValueClass(objData.MethodTable, p_Element));
+                DMLOut( " %s\n", DMLValueClass(objData.ElementTypeHandle, p_Element));
             }
             else
             {
@@ -2160,7 +2190,7 @@ static const HRESULT AsyncHResultValues[] =
     COR_E_DATAMISALIGNED, // kDataMisalignedException
     
 };
-BOOL IsAsyncException(TADDR taObj, TADDR mtObj)
+BOOL IsAsyncException(CLRDATA_ADDRESS taObj, CLRDATA_ADDRESS mtObj)
 {
     // by default we'll treat exceptions as synchronous
     UINT32 xcode = EXCEPTION_COMPLUS;
@@ -2354,12 +2384,12 @@ void SosExtOutLargeString(__inout_z __inout_ecount_opt(len) WCHAR * pwszLargeStr
     ExtOut("%S", pwsz);
 }
 
-HRESULT FormatException(TADDR taObj, BOOL bLineNumbers = FALSE)
+HRESULT FormatException(CLRDATA_ADDRESS taObj, BOOL bLineNumbers = FALSE)
 {
     HRESULT Status = S_OK;
 
     DacpObjectData objData;
-    if ((Status=objData.Request(g_sos, TO_CDADDR(taObj))) != S_OK)
+    if ((Status=objData.Request(g_sos, taObj)) != S_OK)
     {        
         ExtOut("Invalid object\n");
         return Status;
@@ -2388,7 +2418,7 @@ HRESULT FormatException(TADDR taObj, BOOL bLineNumbers = FALSE)
 
     // First try to get exception object data using ISOSDacInterface2
     DacpExceptionObjectData excData;
-    BOOL bGotExcData = SUCCEEDED(excData.Request(g_sos, TO_CDADDR(taObj)));
+    BOOL bGotExcData = SUCCEEDED(excData.Request(g_sos, taObj));
 
     // Walk the fields, printing some fields in a special way.
     // HR, InnerException, Message, StackTrace, StackTraceString
@@ -2458,7 +2488,7 @@ HRESULT FormatException(TADDR taObj, BOOL bLineNumbers = FALSE)
     }
 
     BOOL bAsync = bGotExcData ? IsAsyncException(excData)
-                              : IsAsyncException(taObj, TO_TADDR(objData.MethodTable));
+                              : IsAsyncException(taObj, objData.MethodTable);
 
     {
         TADDR taStackTrace = 0;
@@ -2692,7 +2722,7 @@ DECLARE_API(PrintException)
 
     if (p_Object)
     {
-        FormatException(p_Object, bLineNumbers);
+        FormatException(TO_CDADDR(p_Object), bLineNumbers);
     }
 
     // Are there nested exceptions?
@@ -2732,7 +2762,7 @@ DECLARE_API(PrintException)
             }
 
             ExtOut("\nNested exception -------------------------------------------------------------\n");
-            Status = FormatException((DWORD_PTR) obj, bLineNumbers);
+            Status = FormatException(obj, bLineNumbers);
             if (Status != S_OK)
             {
                 return Status;
@@ -3145,7 +3175,7 @@ DECLARE_API(DumpPermissionSet)
 {
     INIT_API();
     MINIDUMP_NOT_SUPPORTED();    
-    
+
     DWORD_PTR p_Object = NULL;
 
     CMDValue arg[] = 
@@ -3494,7 +3524,7 @@ void PrintRuntimeTypes(DWORD_PTR objAddr,size_t Size,DWORD_PTR methodTable,LPVOI
         if (_wcscmp(g_mdName, W("System.RuntimeType")) == 0)
         {
             pArgs->mtOfRuntimeType = methodTable;
-            pArgs->handleFieldOffset = GetObjFieldOffset(objAddr, methodTable, W("m_handle"));
+            pArgs->handleFieldOffset = GetObjFieldOffset(TO_CDADDR(objAddr), TO_CDADDR(methodTable), W("m_handle"));
             if (pArgs->handleFieldOffset <= 0)
                 ExtOut("Error getting System.RuntimeType.m_handle offset\n");
 
@@ -4618,8 +4648,8 @@ DECLARE_API(GCHeapStat)
             ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u\n", 0, 
                 hpUsage.genUsage[0].allocd, hpUsage.genUsage[1].allocd, 
                 hpUsage.genUsage[2].allocd, hpUsage.genUsage[3].allocd);
-            ExtOut("\nFree space:                                                 Percentage\n");
-            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u", 0, 
+            ExtOut("\nFree space:                                                  Percentage\n");
+            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u ", 0, 
                 hpUsage.genUsage[0].freed, hpUsage.genUsage[1].freed, 
                 hpUsage.genUsage[2].freed, hpUsage.genUsage[3].freed);
             tempf = ((float)(hpUsage.genUsage[0].freed+hpUsage.genUsage[1].freed+hpUsage.genUsage[2].freed)) /
@@ -4628,8 +4658,8 @@ DECLARE_API(GCHeapStat)
                 (int)(100*((float)hpUsage.genUsage[3].freed) / (hpUsage.genUsage[3].allocd)));
             if (bIncUnreachable)
             {
-            ExtOut("\nUnrooted objects:                                           Percentage\n");
-            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u", 0, 
+            ExtOut("\nUnrooted objects:                                            Percentage\n");
+            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u ", 0, 
                 hpUsage.genUsage[0].unrooted, hpUsage.genUsage[1].unrooted, 
                 hpUsage.genUsage[2].unrooted, hpUsage.genUsage[3].unrooted);
             tempf = ((float)(hpUsage.genUsage[0].unrooted+hpUsage.genUsage[1].unrooted+hpUsage.genUsage[2].unrooted)) / 
@@ -4707,10 +4737,10 @@ DECLARE_API(GCHeapStat)
             genUsageStat[0].allocd, genUsageStat[1].allocd, 
             genUsageStat[2].allocd, genUsageStat[3].allocd);
 
-        ExtOut("\nFree space:                                                 Percentage\n");
+        ExtOut("\nFree space:                                                  Percentage\n");
         for (DWORD n = 0; n < dwNHeaps; n ++)
         {
-            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u", n, 
+            ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u ", n, 
                 hpUsage[n].genUsage[0].freed, hpUsage[n].genUsage[1].freed, 
                 hpUsage[n].genUsage[2].freed, hpUsage[n].genUsage[3].freed);
 
@@ -4726,10 +4756,10 @@ DECLARE_API(GCHeapStat)
 
         if (bIncUnreachable)
         {
-            ExtOut("\nUnrooted objects:                                           Percentage\n");
+            ExtOut("\nUnrooted objects:                                            Percentage\n");
             for (DWORD n = 0; n < dwNHeaps; n ++)
             {
-                ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u", n, 
+                ExtOut("Heap%-4d %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u %12" POINTERSIZE_TYPE "u ", n, 
                     hpUsage[n].genUsage[0].unrooted, hpUsage[n].genUsage[1].unrooted, 
                     hpUsage[n].genUsage[2].unrooted, hpUsage[n].genUsage[3].unrooted);
 
@@ -5748,7 +5778,6 @@ HRESULT PrintSpecialThreads()
 
         TADDR CLRTLSDataAddr = 0;
 
-#ifdef FEATURE_IMPLICIT_TLS
         TADDR tlsArrayAddr = NULL;
         if (!SafeReadMemory (TO_TADDR(cdaTeb) + WINNT_OFFSETOF__TEB__ThreadLocalStoragePointer , &tlsArrayAddr, sizeof (void**), NULL))
         {
@@ -5758,36 +5787,13 @@ HRESULT PrintSpecialThreads()
 
         TADDR moduleTlsDataAddr = 0;
 
-        if (!SafeReadMemory (tlsArrayAddr + sizeof (void*) * dwCLRTLSDataIndex, &moduleTlsDataAddr, sizeof (void**), NULL))
+        if (!SafeReadMemory (tlsArrayAddr + sizeof (void*) * (dwCLRTLSDataIndex & 0xFFFF), &moduleTlsDataAddr, sizeof (void**), NULL))
         {
             PrintLn("Failed to get Tls expansion slots for thread ", ThreadID(SysId));        
             continue;
         }
 
-        CLRTLSDataAddr = moduleTlsDataAddr + OFFSETOF__TLS__tls_EETlsData;
-#else
-        if (dwCLRTLSDataIndex < TLS_MINIMUM_AVAILABLE)
-        {
-            CLRTLSDataAddr = TO_TADDR(cdaTeb) + offsetof(TEB, TlsSlots) + sizeof (void*) * dwCLRTLSDataIndex;
-        }
-        else
-        {
-            //if TLS index is bigger than TLS_MINIMUM_AVAILABLE, the TLS slot lives in ExpansionSlots
-            TADDR TebExpsionAddr = NULL;
-            if (!SafeReadMemory (TO_TADDR(cdaTeb) + offsetof(TEB, TlsExpansionSlots) , &TebExpsionAddr, sizeof (void**), NULL))
-            {
-                PrintLn("Failed to get Tls expansion slots for thread ", ThreadID(SysId));        
-                continue;
-            }
-
-            if (TebExpsionAddr == NULL)
-            {
-                continue;
-            }
-            
-            CLRTLSDataAddr = TebExpsionAddr + sizeof (void*) * (dwCLRTLSDataIndex - TLS_MINIMUM_AVAILABLE);
-        }
-#endif // FEATURE_IMPLICIT_TLS
+        CLRTLSDataAddr = moduleTlsDataAddr + ((dwCLRTLSDataIndex & 0x7FFF0000) >> 16) + OFFSETOF__TLS__tls_EETlsData;
 
         TADDR CLRTLSData = NULL;
         if (!SafeReadMemory (CLRTLSDataAddr, &CLRTLSData, sizeof (TADDR), NULL))
@@ -6315,6 +6321,27 @@ public:
         return bNeedUpdates;
     }
 
+    BOOL UpdateKnownCodeAddress(TADDR mod, CLRDATA_ADDRESS bpLocation)
+    {
+        PendingBreakpoint *pCur = m_breakpoints;
+        BOOL bpSet = FALSE;
+
+        while(pCur)
+        {
+            PendingBreakpoint *pNext = pCur->pNext;
+            if (pCur->ModuleMatches(mod))
+            {
+                IssueDebuggerBPCommand(bpLocation);
+                bpSet = TRUE;
+                break;
+            }
+
+            pCur = pNext;
+        }
+
+        return bpSet;
+    }
+
     void RemovePendingForModule(TADDR mod)
     {
         PendingBreakpoint *pCur = m_breakpoints;
@@ -6687,7 +6714,7 @@ BOOL g_stopOnNextCatch = FALSE;
 // According to the latest debuggers these callbacks will not get called
 // unless the user (or an extension, like SOS :-)) had previously enabled
 // clrn with "sxe clrn".
-class CNotification : public IXCLRDataExceptionNotification4
+class CNotification : public IXCLRDataExceptionNotification5
 {
     static int s_condemnedGen;
 
@@ -6713,9 +6740,10 @@ public:
             || IsEqualIID(iid, IID_IXCLRDataExceptionNotification)
             || IsEqualIID(iid, IID_IXCLRDataExceptionNotification2)
             || IsEqualIID(iid, IID_IXCLRDataExceptionNotification3)
-            || IsEqualIID(iid, IID_IXCLRDataExceptionNotification4))
+            || IsEqualIID(iid, IID_IXCLRDataExceptionNotification4)
+            || IsEqualIID(iid, IID_IXCLRDataExceptionNotification5))
         {
-            *ppvObject = static_cast<IXCLRDataExceptionNotification4*>(this);
+            *ppvObject = static_cast<IXCLRDataExceptionNotification5*>(this);
             AddRef();
             return S_OK;
         }
@@ -6741,7 +6769,13 @@ public:
      */
     STDMETHODIMP OnCodeGenerated(IXCLRDataMethodInstance* method)
     {
-        // Some method has been generated, make a breakpoint and remove it.
+        m_dbgStatus = DEBUG_STATUS_GO_HANDLED;
+        return S_OK;
+    }
+
+    STDMETHODIMP OnCodeGenerated2(IXCLRDataMethodInstance* method, CLRDATA_ADDRESS nativeCodeLocation)
+    {
+        // Some method has been generated, make a breakpoint.
         ULONG32 len = mdNameLen;
         LPWSTR szModuleName = (LPWSTR)alloca(mdNameLen * sizeof(WCHAR));
         if (method->GetName(0, mdNameLen, &len, g_mdName) == S_OK)
@@ -6754,12 +6788,11 @@ public:
                 if (pMod->GetName(mdNameLen, &len, szModuleName) == S_OK)
                 {
                     ExtOut("JITTED %S!%S\n", szModuleName, g_mdName);
-
-                    // Add breakpoint, perhaps delete pending breakpoint
+                    
                     DacpGetModuleAddress dgma;
                     if (SUCCEEDED(dgma.Request(pMod)))
                     {
-                        g_bpoints.Update(TO_TADDR(dgma.ModulePtr), FALSE);
+                        g_bpoints.UpdateKnownCodeAddress(TO_TADDR(dgma.ModulePtr), nativeCodeLocation);
                     }
                     else
                     {
@@ -12040,12 +12073,12 @@ public:
             return;
         }
 
-#ifdef _TARGET_WIN64_
+#ifdef DEBUG_STACK_CONTEXT
         PDEBUG_STACK_FRAME currentNativeFrame = NULL;
         ULONG numNativeFrames = 0;
         if (bFull)
         {
-            hr = GetContextStackTrace(&numNativeFrames);
+            hr = GetContextStackTrace(osID, &numNativeFrames);
             if (FAILED(hr))
             {
                 ExtOut("Failed to get native stack frames: %lx\n", hr);
@@ -12053,7 +12086,7 @@ public:
             }
             currentNativeFrame = &g_Frames[0];
         }
-#endif // _TARGET_WIN64_
+#endif // DEBUG_STACK_CONTEXT
         
         unsigned int refCount = 0, errCount = 0;
         ArrayHolder<SOSStackRefData> pRefs = NULL;
@@ -12079,7 +12112,7 @@ public:
             if (SUCCEEDED(frameDataResult) && FrameData.frameAddr)
                 sp = FrameData.frameAddr;
 
-#ifdef _TARGET_WIN64_
+#ifdef DEBUG_STACK_CONTEXT
             while ((numNativeFrames > 0) && (currentNativeFrame->StackOffset <= sp))
             {
                 if (currentNativeFrame->StackOffset != sp)
@@ -12089,7 +12122,7 @@ public:
                 currentNativeFrame++;
                 numNativeFrames--;
             }
-#endif // _TARGET_WIN64_
+#endif // DEBUG_STACK_CONTEXT
 
             // Print the stack pointer.
             out.WriteColumn(0, sp);
@@ -12138,14 +12171,14 @@ public:
 
         } while (pStackWalk->Next() == S_OK);
 
-#ifdef _TARGET_WIN64_
+#ifdef DEBUG_STACK_CONTEXT
         while (numNativeFrames > 0)
         {
             PrintNativeStackFrame(out, currentNativeFrame, bSuppressLines);
             currentNativeFrame++;
             numNativeFrames--;
         }
-#endif // _TARGET_WIN64_
+#endif // DEBUG_STACK_CONTEXT
     }
     
     static HRESULT PrintManagedFrameContext(IXCLRDataStackWalk *pStackWalk)
@@ -12282,15 +12315,43 @@ public:
         
         PrintThread(osid, bParams, bLocals, bSuppressLines, bGC, bNative, bDisplayRegVals);
     }
-private: 
 
+    static void PrintAllThreads(BOOL bParams, BOOL bLocals, BOOL bSuppressLines, BOOL bGC, BOOL bNative, BOOL bDisplayRegVals)
+    {
+        HRESULT Status;
+
+        DacpThreadStoreData ThreadStore;
+        if ((Status = ThreadStore.Request(g_sos)) != S_OK)
+        {
+            ExtErr("Failed to request ThreadStore\n");
+            return;
+        }
+
+        DacpThreadData Thread;
+        CLRDATA_ADDRESS CurThread = ThreadStore.firstThread;
+        while (CurThread != 0)
+        {
+            if (IsInterrupt())
+                break;
+
+            if ((Status = Thread.Request(g_sos, CurThread)) != S_OK)
+            {
+                ExtErr("Failed to request thread at %p\n", CurThread);
+                return;
+            }
+            ExtOut("OS Thread Id: 0x%x\n", Thread.osThreadId);
+            PrintThread(Thread.osThreadId, bParams, bLocals, bSuppressLines, bGC, bNative, bDisplayRegVals);
+            CurThread = Thread.nextThread;
+        }
+    }
+
+private: 
     static HRESULT CreateStackWalk(ULONG osID, IXCLRDataStackWalk **ppStackwalk)
     {
         HRESULT hr = S_OK;
         ToRelease<IXCLRDataTask> pTask;
 
-        if ((hr = g_ExtSystem->GetCurrentThreadSystemId(&osID)) != S_OK ||
-            (hr = g_clrData->GetTaskByOSThreadID(osID, &pTask)) != S_OK)
+        if ((hr = g_clrData->GetTaskByOSThreadID(osID, &pTask)) != S_OK)
         {
             ExtOut("Unable to walk the managed stack. The current thread is likely not a \n");
             ExtOut("managed thread. You can run !threads to get a list of managed threads in\n");
@@ -12693,6 +12754,7 @@ DECLARE_API(ClrStack)
     BOOL dml = FALSE;
     BOOL bFull = FALSE;
     BOOL bDisplayRegVals = FALSE;
+    BOOL bAllThreads = FALSE;    
     DWORD frameToDumpVariablesFor = -1;
     StringHolder cvariableName;
     ArrayHolder<WCHAR> wvariableName = new NOTHROW WCHAR[mdNameLen];
@@ -12708,6 +12770,7 @@ DECLARE_API(ClrStack)
     CMDOption option[] = 
     {   // name, vptr, type, hasValue
         {"-a", &bAll, COBOOL, FALSE},
+        {"-all", &bAllThreads, COBOOL, FALSE},
         {"-p", &bParams, COBOOL, FALSE},
         {"-l", &bLocals, COBOOL, FALSE},
         {"-n", &bSuppressLines, COBOOL, FALSE},
@@ -12765,7 +12828,12 @@ DECLARE_API(ClrStack)
         return ClrStackImplWithICorDebug::ClrStackFromPublicInterface(bParams, bLocals, FALSE, wvariableName, frameToDumpVariablesFor);
     }
     
-    ClrStackImpl::PrintCurrentThread(bParams, bLocals, bSuppressLines, bGC, bFull, bDisplayRegVals);
+    if (bAllThreads) {
+        ClrStackImpl::PrintAllThreads(bParams, bLocals, bSuppressLines, bGC, bFull, bDisplayRegVals);
+    }
+    else {
+        ClrStackImpl::PrintCurrentThread(bParams, bLocals, bSuppressLines, bGC, bFull, bDisplayRegVals);
+    }
     
     return S_OK;
 }
@@ -13297,7 +13365,7 @@ HRESULT CALLBACK ImplementEFNStackTrace(
     ULONG numFrames = 0;
     BOOL bInNative = TRUE;
 
-    Status = GetContextStackTrace(&numFrames);
+    Status = GetContextStackTrace(ThreadId, &numFrames);
     if (FAILED(Status))
     {
         goto Exit;
@@ -13321,7 +13389,7 @@ HRESULT CALLBACK ImplementEFNStackTrace(
                 {
                     // below we cast the i-th AMD64_CONTEXT to CROSS_PLATFORM_CONTEXT
                     AppendContext (pTransitionContexts, *puiTransitionContextCount, 
-                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_X64FrameContexts[i])));
+                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_FrameContexts[i])));
                 }
                 else
                 {
@@ -13354,7 +13422,7 @@ HRESULT CALLBACK ImplementEFNStackTrace(
                 if (puiTransitionContextCount)
                 {
                     AppendContext (pTransitionContexts, *puiTransitionContextCount, 
-                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_X64FrameContexts[i])));
+                        &transitionContextCount, uiSizeOfContext, (CROSS_PLATFORM_CONTEXT*)(&(g_FrameContexts[i])));
                 }
                 else
                 {
@@ -13706,7 +13774,7 @@ HRESULT AppendExceptionInfo(CLRDATA_ADDRESS cdaObj,
     }
     
     BOOL bAsync = bGotExcData ? IsAsyncException(excData)
-                              : IsAsyncException(TO_TADDR(cdaObj), TO_TADDR(objData.MethodTable));
+                              : IsAsyncException(cdaObj, objData.MethodTable);
 
     DWORD_PTR arrayPtr;
     if (bGotExcData)
@@ -14597,3 +14665,86 @@ DECLARE_API(Help)
     
     return S_OK;
 }
+
+#if defined(FEATURE_PAL) && defined(_TARGET_AMD64_)
+
+static BOOL 
+ReadMemoryAdapter(PVOID address, PVOID buffer, SIZE_T size)
+{
+    ULONG fetched;
+    HRESULT hr = g_ExtData->ReadVirtual(TO_CDADDR(address), buffer, size, &fetched);
+    return SUCCEEDED(hr);
+}
+
+static BOOL
+GetStackFrame(CONTEXT* context, ULONG numNativeFrames)
+{
+    KNONVOLATILE_CONTEXT_POINTERS contextPointers;
+    memset(&contextPointers, 0, sizeof(contextPointers));
+
+    ULONG64 baseAddress;
+    HRESULT hr = g_ExtSymbols->GetModuleByOffset(context->Rip, 0, NULL, &baseAddress);
+    if (FAILED(hr))
+    {
+        PDEBUG_STACK_FRAME frame = &g_Frames[0];
+        for (int i = 0; i < numNativeFrames; i++, frame++) {
+            if (frame->InstructionOffset == context->Rip)
+            {
+                if ((i + 1) >= numNativeFrames) {
+                    return FALSE;
+                }
+                memcpy(context, &(g_FrameContexts[i + 1]), sizeof(*context));
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+    if (!PAL_VirtualUnwindOutOfProc(context, &contextPointers, baseAddress, ReadMemoryAdapter))
+    {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static BOOL
+UnwindStackFrames(ULONG32 osThreadId)
+{
+    ULONG numNativeFrames = 0;
+    HRESULT hr = GetContextStackTrace(osThreadId, &numNativeFrames);
+    if (FAILED(hr))
+    {
+        return FALSE;
+    }
+    CONTEXT context;
+    memset(&context, 0, sizeof(context));
+    context.ContextFlags = CONTEXT_FULL;
+
+    hr = g_ExtSystem->GetThreadContextById(osThreadId, CONTEXT_FULL, sizeof(context), (PBYTE)&context);
+    if (FAILED(hr))
+    {
+        return FALSE;
+    }
+    TableOutput out(3, POINTERSIZE_HEX, AlignRight);
+    out.WriteRow("RSP", "RIP", "Call Site");
+
+    DEBUG_STACK_FRAME nativeFrame;
+    memset(&nativeFrame, 0, sizeof(nativeFrame));
+
+    do 
+    {
+        if (context.Rip == 0)
+        {
+            break;
+        }
+        nativeFrame.InstructionOffset = context.Rip;
+        nativeFrame.ReturnOffset = context.Rip;
+        nativeFrame.FrameOffset = context.Rbp;
+        nativeFrame.StackOffset = context.Rsp;
+        ClrStackImpl::PrintNativeStackFrame(out, &nativeFrame, FALSE);
+
+    } while (GetStackFrame(&context, numNativeFrames));
+
+    return TRUE;
+}
+
+#endif // FEATURE_PAL && _TARGET_AMD64_

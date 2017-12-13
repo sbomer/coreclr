@@ -52,7 +52,7 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics.Contracts;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 
@@ -216,7 +216,7 @@ namespace Microsoft.Win32
             }
             // We really should throw an exception here if errorCode was bad,
             // but we can't for compatibility reasons.
-            BCLDebug.Correctness(errorCode == 0, "RegDeleteValue failed.  Here's your error code: " + errorCode);
+            Debug.Assert(errorCode == 0, "RegDeleteValue failed.  Here's your error code: " + errorCode);
         }
 
         /**
@@ -243,8 +243,8 @@ namespace Microsoft.Win32
         internal static RegistryKey GetBaseKey(IntPtr hKey, RegistryView view)
         {
             int index = ((int)hKey) & 0x0FFFFFFF;
-            BCLDebug.Assert(index >= 0 && index < hkeyNames.Length, "index is out of range!");
-            BCLDebug.Assert((((int)hKey) & 0xFFFFFFF0) == 0x80000000, "Invalid hkey value!");
+            Debug.Assert(index >= 0 && index < hkeyNames.Length, "index is out of range!");
+            Debug.Assert((((int)hKey) & 0xFFFFFFF0) == 0x80000000, "Invalid hkey value!");
 
             bool isPerf = hKey == HKEY_PERFORMANCE_DATA;
             // only mark the SafeHandle as ownsHandle if the key is HKEY_PERFORMANCE_DATA.
@@ -458,9 +458,7 @@ namespace Microsoft.Win32
          * Note that <var>name</var> can be null or "", at which point the
          * unnamed or default value of this Registry key is returned, if any.
          * The default values for RegistryKeys are OS-dependent.  NT doesn't
-         * have them by default, but they can exist and be of any type.  On
-         * Win95, the default value is always an empty key of type REG_SZ.
-         * Win98 supports default values of any type, but defaults to REG_SZ.
+         * have them by default, but they can exist and be of any type. 
          *
          * @param name Name of value to retrieve.
          * @param defaultValue Value to return if <i>name</i> doesn't exist.
@@ -541,7 +539,7 @@ namespace Microsoft.Win32
             if (datasize < 0)
             {
                 // unexpected code path
-                BCLDebug.Assert(false, "[InternalGetValue] RegQueryValue returned ERROR_SUCCESS but gave a negative datasize");
+                Debug.Fail("[InternalGetValue] RegQueryValue returned ERROR_SUCCESS but gave a negative datasize");
                 datasize = 0;
             }
 
@@ -565,7 +563,7 @@ namespace Microsoft.Win32
                             goto case Win32Native.REG_BINARY;
                         }
                         long blob = 0;
-                        BCLDebug.Assert(datasize == 8, "datasize==8");
+                        Debug.Assert(datasize == 8, "datasize==8");
                         // Here, datasize must be 8 when calling this
                         ret = Win32Native.RegQueryValueEx(hkey, name, null, ref type, ref blob, ref datasize);
 
@@ -580,7 +578,7 @@ namespace Microsoft.Win32
                             goto case Win32Native.REG_QWORD;
                         }
                         int blob = 0;
-                        BCLDebug.Assert(datasize == 4, "datasize==4");
+                        Debug.Assert(datasize == 4, "datasize==4");
                         // Here, datasize must be four when calling this
                         ret = Win32Native.RegQueryValueEx(hkey, name, null, ref type, ref blob, ref datasize);
 
@@ -704,7 +702,7 @@ namespace Microsoft.Win32
 
                             if (nextNull < len)
                             {
-                                BCLDebug.Assert(blob[nextNull] == (char)0, "blob[nextNull] should be 0");
+                                Debug.Assert(blob[nextNull] == (char)0, "blob[nextNull] should be 0");
                                 if (nextNull - cur > 0)
                                 {
                                     strings.Add(new String(blob, cur, nextNull - cur));
@@ -992,13 +990,13 @@ namespace Microsoft.Win32
                     throw new IOException(SR.Arg_RegKeyNotFound, errorCode);
 
                 default:
-                    throw new IOException(Win32Native.GetMessage(errorCode), errorCode);
+                    throw new IOException(Interop.Kernel32.GetMessage(errorCode), errorCode);
             }
         }
 
         internal static String FixupName(String name)
         {
-            BCLDebug.Assert(name != null, "[FixupName]name!=null");
+            Debug.Assert(name != null, "[FixupName]name!=null");
             if (name.IndexOf('\\') == -1)
                 return name;
 
@@ -1013,7 +1011,7 @@ namespace Microsoft.Win32
 
         private static void FixupPath(StringBuilder path)
         {
-            Contract.Requires(path != null);
+            Debug.Assert(path != null);
             int length = path.Length;
             bool fixup = false;
             char markerChar = (char)0xFFFF;
@@ -1109,7 +1107,6 @@ namespace Microsoft.Win32
 
         static private void ValidateKeyName(string name)
         {
-            Contract.Ensures(name != null);
             if (name == null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.name);

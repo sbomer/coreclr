@@ -12,7 +12,6 @@ using System.Security;
 using System.Threading;
 using System.Globalization;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Collections.Generic;
 
 namespace System.Text
@@ -134,7 +133,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
             }
-            Contract.EndContractBlock();
 
             if (value == null)
             {
@@ -183,7 +181,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(capacity), SR.Format(SR.ArgumentOutOfRange_MustBePositive, nameof(capacity)));
             }
-            Contract.EndContractBlock();
 
             if (capacity == 0)
             {
@@ -200,7 +197,6 @@ namespace System.Text
             {
                 throw new ArgumentNullException(nameof(info));
             }
-            Contract.EndContractBlock();
 
             int persistedCapacity = 0;
             string persistedString = null;
@@ -265,7 +261,6 @@ namespace System.Text
             {
                 throw new ArgumentNullException(nameof(info));
             }
-            Contract.EndContractBlock();
 
             AssertInvariants();
             info.AddValue(MaxCapacityField, m_MaxCapacity);
@@ -275,7 +270,7 @@ namespace System.Text
             info.AddValue(ThreadIDField, 0);
         }
 
-        [System.Diagnostics.Conditional("_DEBUG")]
+        [System.Diagnostics.Conditional("DEBUG")]
         private void AssertInvariants()
         {
             Debug.Assert(m_ChunkOffset + m_ChunkChars.Length >= m_ChunkOffset, "The length of the string is greater than int.MaxValue.");
@@ -321,7 +316,6 @@ namespace System.Text
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_SmallCapacity);
                 }
-                Contract.EndContractBlock();
 
                 if (Capacity != value)
                 {
@@ -352,7 +346,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_NegativeCapacity);
             }
-            Contract.EndContractBlock();
 
             if (Capacity < capacity)
                 Capacity = capacity;
@@ -410,8 +403,6 @@ namespace System.Text
         /// <param name="length">The number of characters to read in this builder.</param>
         public string ToString(int startIndex, int length)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-
             int currentLength = this.Length;
             if (startIndex < 0)
             {
@@ -496,7 +487,6 @@ namespace System.Text
         {
             get
             {
-                Contract.Ensures(Contract.Result<int>() >= 0);
                 return m_ChunkOffset + m_ChunkLength;
             }
             set
@@ -511,7 +501,6 @@ namespace System.Text
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_SmallCapacity);
                 }
-                Contract.EndContractBlock();
 
                 int originalCapacity = Capacity;
 
@@ -612,8 +601,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(repeatCount), SR.ArgumentOutOfRange_NegativeCount);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             if (repeatCount == 0)
             {
@@ -666,8 +653,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(charCount), SR.ArgumentOutOfRange_GenericPositive);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             if (value == null)
             {
@@ -705,8 +690,6 @@ namespace System.Text
         /// <param name="value">The string to append.</param>
         public StringBuilder Append(String value)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             if (value != null)
             {
                 // We could have just called AppendHelper here; this is a hand-specialization of that code.
@@ -776,7 +759,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_GenericPositive);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
 
             if (value == null)
             {
@@ -831,9 +813,8 @@ namespace System.Text
             {
                 throw new ArgumentException(SR.ArgumentOutOfRange_OffsetOut);
             }
-            Contract.EndContractBlock();
 
-            CopyTo(sourceIndex, new Span<char>(destination, destinationIndex), count);
+            CopyTo(sourceIndex, new Span<char>(destination).Slice(destinationIndex), count);
         }
 
         public void CopyTo(int sourceIndex, Span<char> destination, int count)
@@ -852,7 +833,6 @@ namespace System.Text
             {
                 throw new ArgumentException(SR.Arg_LongerThanSrcString);
             }
-            Contract.EndContractBlock();
 
             AssertInvariants();
 
@@ -896,8 +876,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             int currentLength = Length;
             if ((uint)index > (uint)currentLength)
@@ -959,8 +937,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_Index);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             if (Length == length && startIndex == 0)
             {
@@ -980,15 +956,8 @@ namespace System.Text
 
         public StringBuilder Append(bool value) => Append(value.ToString());
 
-        [CLSCompliant(false)]
-        public StringBuilder Append(sbyte value) => Append(value.ToString());
-
-        public StringBuilder Append(byte value) => Append(value.ToString());
-
         public StringBuilder Append(char value)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             if (m_ChunkLength < m_ChunkChars.Length)
             {
                 m_ChunkChars[m_ChunkLength++] = value;
@@ -1001,26 +970,42 @@ namespace System.Text
             return this;
         }
 
-        public StringBuilder Append(short value) => Append(value.ToString());
+        [CLSCompliant(false)]
+        public StringBuilder Append(sbyte value) => AppendSpanFormattable(value);
 
-        public StringBuilder Append(int value) => Append(value.ToString());
+        public StringBuilder Append(byte value) => AppendSpanFormattable(value);
 
-        public StringBuilder Append(long value) => Append(value.ToString());
+        public StringBuilder Append(short value) => AppendSpanFormattable(value);
 
-        public StringBuilder Append(float value) => Append(value.ToString());
+        public StringBuilder Append(int value) => AppendSpanFormattable(value);
 
-        public StringBuilder Append(double value) => Append(value.ToString());
+        public StringBuilder Append(long value) => AppendSpanFormattable(value);
 
-        public StringBuilder Append(decimal value) => Append(value.ToString());
+        public StringBuilder Append(float value) => AppendSpanFormattable(value);
+
+        public StringBuilder Append(double value) => AppendSpanFormattable(value);
+
+        public StringBuilder Append(decimal value) => AppendSpanFormattable(value);
 
         [CLSCompliant(false)]
-        public StringBuilder Append(ushort value) => Append(value.ToString());
+        public StringBuilder Append(ushort value) => AppendSpanFormattable(value);
 
         [CLSCompliant(false)]
-        public StringBuilder Append(uint value) => Append(value.ToString());
+        public StringBuilder Append(uint value) => AppendSpanFormattable(value);
 
         [CLSCompliant(false)]
-        public StringBuilder Append(ulong value) => Append(value.ToString());
+        public StringBuilder Append(ulong value) => AppendSpanFormattable(value);
+
+        private StringBuilder AppendSpanFormattable<T>(T value) where T : ISpanFormattable
+        {
+            if (value.TryFormat(RemainingCurrentChunk, out int charsWritten, format: default, provider: null))
+            {
+                m_ChunkLength += charsWritten;
+                return this;
+            }
+
+            return Append(value.ToString());
+        }
 
         public StringBuilder Append(object value) => (value == null) ? this : Append(value.ToString());
 
@@ -1170,8 +1155,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             if (value != null)
             {
@@ -1195,8 +1178,6 @@ namespace System.Text
 
         public StringBuilder Insert(int index, char value)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             unsafe
             {
                 Insert(index, &value, 1);
@@ -1210,8 +1191,6 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             if (value != null)
                 Insert(index, value, 0, value.Length);
@@ -1220,8 +1199,6 @@ namespace System.Text
 
         public StringBuilder Insert(int index, char[] value, int startIndex, int charCount)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             int currentLength = Length;
             if ((uint)index > (uint)currentLength)
             {
@@ -1286,9 +1263,6 @@ namespace System.Text
 
         public StringBuilder Insert(int index, ReadOnlySpan<char> value)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
-
             if ((uint)index > (uint)Length)
             {
                 throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
@@ -1320,8 +1294,6 @@ namespace System.Text
                 string paramName = (format == null) ? nameof(format) : nameof(args);
                 throw new ArgumentNullException(paramName);
             }
-            Contract.Ensures(Contract.Result<String>() != null);
-            Contract.EndContractBlock();
 
             return AppendFormatHelper(null, format, new ParamsArray(args));
         }
@@ -1341,8 +1313,6 @@ namespace System.Text
                 string paramName = (format == null) ? nameof(format) : nameof(args);
                 throw new ArgumentNullException(paramName);
             }
-            Contract.Ensures(Contract.Result<String>() != null);
-            Contract.EndContractBlock();
 
             return AppendFormatHelper(provider, format, new ParamsArray(args));
         }
@@ -1362,8 +1332,6 @@ namespace System.Text
             {
                 throw new ArgumentNullException(nameof(format));
             }
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-            Contract.EndContractBlock();
 
             int pos = 0;
             int len = format.Length;
@@ -1496,6 +1464,7 @@ namespace System.Text
                 //
                 Object arg = args[index];
                 String itemFormat = null;
+                ReadOnlySpan<char> itemFormatSpan = default; // used if itemFormat is null
                 // Is current character a colon? which indicates start of formatting parameter.
                 if (ch == ':')
                 {
@@ -1550,13 +1519,13 @@ namespace System.Text
                         if (startPos != pos)
                         {
                             // There was no brace escaping, extract the item format as a single string
-                            itemFormat = format.Substring(startPos, pos - startPos);
+                            itemFormatSpan = format.AsReadOnlySpan().Slice(startPos, pos - startPos);
                         }
                     }
                     else
                     {
                         unescapedItemFormat.Append(format, startPos, pos - startPos);
-                        itemFormat = unescapedItemFormat.ToString();
+                        itemFormatSpan = itemFormat = unescapedItemFormat.ToString();
                         unescapedItemFormat.Clear();
                     }
                 }
@@ -1567,15 +1536,38 @@ namespace System.Text
                 String s = null;
                 if (cf != null)
                 {
+                    if (itemFormatSpan.Length != 0 && itemFormat == null)
+                    {
+                        itemFormat = new string(itemFormatSpan);
+                    }
                     s = cf.Format(itemFormat, arg, provider);
                 }
 
                 if (s == null)
                 {
-                    IFormattable formattableArg = arg as IFormattable;
-
-                    if (formattableArg != null)
+                    // If arg is ISpanFormattable and the beginning doesn't need padding,
+                    // try formatting it into the remaining current chunk.
+                    if (arg is ISpanFormattable spanFormattableArg &&
+                        (leftJustify || width == 0) &&
+                        spanFormattableArg.TryFormat(RemainingCurrentChunk, out int charsWritten, itemFormatSpan, provider))
                     {
+                        m_ChunkLength += charsWritten;
+
+                        // Pad the end, if needed.
+                        int padding = width - charsWritten;
+                        if (leftJustify && padding > 0) Append(' ', padding);
+
+                        // Continue to parse other characters.
+                        continue;
+                    }
+
+                    // Otherwise, fallback to trying IFormattable or calling ToString.
+                    if (arg is IFormattable formattableArg)
+                    {
+                        if (itemFormatSpan.Length != 0 && itemFormat == null)
+                        {
+                            itemFormat = new string(itemFormatSpan);
+                        }
                         s = formattableArg.ToString(itemFormat, provider);
                     }
                     else if (arg != null)
@@ -1665,8 +1657,6 @@ namespace System.Text
         /// </remarks>
         public StringBuilder Replace(String oldValue, String newValue, int startIndex, int count)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             int currentLength = Length;
             if ((uint)startIndex > (uint)currentLength)
             {
@@ -1762,8 +1752,6 @@ namespace System.Text
         /// <param name="count">The number of characters to read in this builder.</param>
         public StringBuilder Replace(char oldChar, char newChar, int startIndex, int count)
         {
-            Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
             int currentLength = Length;
             if ((uint)startIndex > (uint)currentLength)
             {
@@ -1926,7 +1914,7 @@ namespace System.Text
                         Debug.Assert(gapEnd <= sourceChunk.m_ChunkLength, "gap too big");
                         if (delta != 0)     // can skip the sliding of gaps if source an target string are the same size.  
                         {
-                            // Copy the gap data between the current replacement and the the next replacement
+                            // Copy the gap data between the current replacement and the next replacement
                             fixed (char* sourcePtr = &sourceChunk.m_ChunkChars[gapStart])
                                 ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, sourcePtr, gapEnd - gapStart);
                         }
@@ -1986,7 +1974,7 @@ namespace System.Text
         /// </summary>
         /// <param name="chunk">
         /// The chunk in which to start replacing characters.
-        /// Receieves the chunk in which character replacement ends.
+        /// Receives the chunk in which character replacement ends.
         /// </param>
         /// <param name="indexInChunk">
         /// The index in <paramref name="chunk"/> to start replacing characters at.
@@ -2103,6 +2091,13 @@ namespace System.Text
             return result;
         }
 
+        /// <summary>Gets a span representing the remaining space available in the current chunk.</summary>
+        private Span<char> RemainingCurrentChunk
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => new Span<char>(m_ChunkChars, m_ChunkLength, m_ChunkChars.Length - m_ChunkLength);
+        }
+
         /// <summary>
         /// Finds the chunk that logically succeeds the specified chunk.
         /// </summary>
@@ -2125,8 +2120,8 @@ namespace System.Text
         /// </remarks>
         private void ExpandByABlock(int minBlockCharCount)
         {
-            Contract.Requires(Capacity == Length, $"{nameof(ExpandByABlock)} should only be called when there is no space left.");
-            Contract.Requires(minBlockCharCount > 0);
+            Debug.Assert(Capacity == Length, nameof(ExpandByABlock) + " should only be called when there is no space left.");
+            Debug.Assert(minBlockCharCount > 0);
 
             AssertInvariants();
 

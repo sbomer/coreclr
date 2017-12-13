@@ -27,7 +27,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "blockset.h"
 #include "jitstd.h"
 #include "bitvec.h"
-#include "simplerhash.h"
+#include "jithashtable.h"
 
 /*****************************************************************************/
 typedef BitVec EXPSET_TP;
@@ -517,7 +517,8 @@ struct BasicBlock : private LIR::Range
                         bool      showFlags = false,
                         bool showPreds = true); // Print a simple basic block header for various output, including a
                                                 // list of predecessors and successors.
-#endif                                          // DEBUG
+    const char* dspToString(int blockNumPadding = 0);
+#endif // DEBUG
 
     typedef unsigned weight_t; // Type used to hold block and edge weights
                                // Note that for CLR v2.0 and earlier our
@@ -1052,6 +1053,7 @@ struct BasicBlock : private LIR::Range
     // in the BB list with that stamp (in this field); then we can tell if (e.g.) predecessors are
     // still in the BB list by whether they have the same stamp (with high probability).
     unsigned bbTraversalStamp;
+    unsigned bbID;
 #endif // DEBUG
 
     ThisInitState bbThisOnEntry();
@@ -1190,7 +1192,7 @@ public:
 };
 
 template <>
-struct PtrKeyFuncs<BasicBlock> : public KeyFuncsDefEquals<const BasicBlock*>
+struct JitPtrKeyFuncs<BasicBlock> : public JitKeyFuncsDefEquals<const BasicBlock*>
 {
 public:
     // Make sure hashing is deterministic and not on "ptr."
@@ -1198,13 +1200,19 @@ public:
 };
 
 // A set of blocks.
-typedef SimplerHashTable<BasicBlock*, PtrKeyFuncs<BasicBlock>, bool, JitSimplerHashBehavior> BlkSet;
+typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, bool> BlkSet;
+
+// A vector of blocks.
+typedef jitstd::vector<BasicBlock*> BlkVector;
 
 // A map of block -> set of blocks, can be used as sparse block trees.
-typedef SimplerHashTable<BasicBlock*, PtrKeyFuncs<BasicBlock>, BlkSet*, JitSimplerHashBehavior> BlkToBlkSetMap;
+typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkSet*> BlkToBlkSetMap;
+
+// A map of block -> vector of blocks, can be used as sparse block trees.
+typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BlkVector> BlkToBlkVectorMap;
 
 // Map from Block to Block.  Used for a variety of purposes.
-typedef SimplerHashTable<BasicBlock*, PtrKeyFuncs<BasicBlock>, BasicBlock*, JitSimplerHashBehavior> BlockToBlockMap;
+typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BasicBlock*> BlockToBlockMap;
 
 // In compiler terminology the control flow between two BasicBlocks
 // is typically referred to as an "edge".  Most well known are the

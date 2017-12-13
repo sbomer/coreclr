@@ -1,5 +1,64 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -100,8 +159,9 @@
   <data name="AggregateException_DeserializationFailure" xml:space="preserve">
     <value>The serialization stream contains no inner exceptions.</value>
   </data>
-  <data name="AggregateException_ToString" xml:space="preserve">
-    <value>{0}{1}---&gt; (Inner Exception #{2}) {3}{4}{5}</value>
+  <data name="AggregateException_InnerException" xml:space="preserve">
+    <value>(Inner Exception #{0}) </value>
+    <comment>This text is prepended to each inner exception description during aggregate exception formatting</comment>
   </data>
   <data name="AppDomain_AppBaseNotSet" xml:space="preserve">
     <value>The ApplicationBase must be set before retrieving this property.</value>
@@ -353,7 +413,7 @@
     <value>Search pattern '{0}' cannot contain ".." to move up directories and can be contained only internally in file/directory names, as in "a..b".</value>
   </data>
   <data name="Arg_InvalidTypeInRetType" xml:space="preserve">
-    <value>The return Type contains some invalid type (i.e. null, ByRef)</value>
+    <value>The return Type must be a type provided by the runtime.</value>
   </data>
   <data name="Arg_InvalidTypeInSignature" xml:space="preserve">
     <value>The signature Type array contains some invalid type (i.e. null, void)</value>
@@ -366,6 +426,9 @@
   </data>
   <data name="Arg_KeyNotFound" xml:space="preserve">
     <value>The given key was not present in the dictionary.</value>
+  </data>
+  <data name="Arg_KeyNotFoundWithKey" xml:space="preserve">
+    <value>The given key '{0}' was not present in the dictionary.</value>
   </data>
   <data name="Arg_LongerThanDestArray" xml:space="preserve">
     <value>Destination array was not long enough. Check the destination index, length, and the array's lower bounds.</value>
@@ -865,9 +928,6 @@
   <data name="Argument_CannotSetParentToInterface" xml:space="preserve">
     <value>Cannot set parent to an interface.</value>
   </data>
-  <data name="Argument_CantCallSecObjFunc" xml:space="preserve">
-    <value>Cannot evaluate a security function.</value>
-  </data>
   <data name="Argument_CodepageNotSupported" xml:space="preserve">
     <value>{0} is not a supported code page.</value>
   </data>
@@ -1217,7 +1277,7 @@
     <value>Cannot use type '{0}'. Only value types without pointers or references are supported.</value>
   </data>
   <data name="Argument_InvalidUnity" xml:space="preserve">
-    <value>Invalid Unity type.</value>
+    <value>Type '{0}' is not deserializable.</value>
   </data>
   <data name="Argument_InvalidValue" xml:space="preserve">
     <value>Value was invalid.</value>
@@ -1350,9 +1410,6 @@
   </data>
   <data name="Argument_OffsetAndCapacityOutOfBounds" xml:space="preserve">
     <value>Offset and capacity were greater than the size of the view.</value>
-  </data>
-  <data name="Argument_OffsetAndLengthOutOfBounds" xml:space="preserve">
-    <value>Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.</value>
   </data>
   <data name="Argument_OffsetLocalMismatch" xml:space="preserve">
     <value>The UTC Offset of the local dateTime parameter does not match the offset argument.</value>
@@ -1494,7 +1551,6 @@
   </data>
   <data name="Argument_UnclosedExceptionBlock" xml:space="preserve">
     <value>The IL Generator cannot be used while there are unclosed exceptions.</value>
-
   </data>
   <data name="Argument_Unexpected_TypeSource" xml:space="preserve">
     <value>Unexpected TypeKind when marshaling Windows.Foundation.TypeName.</value>
@@ -2030,6 +2086,9 @@
   <data name="EventSource_AddScalarOutOfRange" xml:space="preserve">
     <value>Getting out of bounds during scalar addition.</value>
   </data>
+  <data name="EventSource_BadHexDigit" xml:space="preserve">
+    <value>Bad Hexidecimal digit "{0}".</value>
+  </data>
   <data name="EventSource_ChannelTypeDoesNotMatchEventChannelValue" xml:space="preserve">
     <value>Channel {0} does not match event channel value {1}.</value>
   </data>
@@ -2041,6 +2100,9 @@
   </data>
   <data name="EventSource_EnumKindMismatch" xml:space="preserve">
     <value>The type of {0} is not expected in {1}.</value>
+  </data>
+  <data name="EventSource_EvenHexDigits" xml:space="preserve">
+    <value>Must have an even number of Hexidecimal digits.</value>
   </data>
   <data name="EventSource_EventChannelOutOfRange" xml:space="preserve">
     <value>Channel {0} has a value of {1} which is outside the legal range (16-254).</value>
@@ -2066,6 +2128,9 @@
   <data name="EventSource_EventSourceGuidInUse" xml:space="preserve">
     <value>An instance of EventSource with Guid {0} already exists.</value>
   </data>
+  <data name="EventSource_EventTooBig" xml:space="preserve">
+    <value>The payload for a single event is too large.</value>
+  </data>
   <data name="EventSource_EventWithAdminChannelMustHaveMessage" xml:space="preserve">
     <value>Event {0} specifies an Admin channel {1}. It must specify a Message property.</value>
   </data>
@@ -2077,6 +2142,9 @@
   </data>
   <data name="EventSource_IllegalTaskValue" xml:space="preserve">
     <value>Task {0} has a value of {1} which is outside the legal range (1-65535).</value>
+  </data>
+  <data name="EventSource_IllegalValue" xml:space="preserve">
+    <value>Illegal value "{0}" (prefix strings with @ to indicate a literal string).</value>
   </data>
   <data name="EventSource_IncorrentlyAuthoredTypeInfo" xml:space="preserve">
     <value>Incorrectly-authored TypeInfo - a type should be serialized as one field or as one group</value>
@@ -2106,7 +2174,7 @@
     <value>Attempt to define more than the maximum limit of 8 channels for a provider.</value>
   </data>
   <data name="EventSource_MismatchIdToWriteEvent" xml:space="preserve">
-    <value>Event {0} is givien event ID {1} but {2} was passed to WriteEvent.</value>
+    <value>Event {0} was assigned event ID {1} but {2} was passed to WriteEvent.</value>
   </data>
   <data name="EventSource_NeedGuid" xml:space="preserve">
     <value>The Guid of an EventSource must be non zero.</value>
@@ -2174,6 +2242,9 @@
   <data name="EventSource_ToString" xml:space="preserve">
     <value>EventSource({0}, {1})</value>
   </data>
+  <data name="EventSource_TraitEven" xml:space="preserve">
+    <value>There must be an even number of trait strings (they are key-value pairs).</value>
+  </data>
   <data name="EventSource_TypeMustBeSealedOrAbstract" xml:space="preserve">
     <value>Event source types must be sealed or abstract.</value>
   </data>
@@ -2188,6 +2259,9 @@
   </data>
   <data name="EventSource_UndefinedOpcode" xml:space="preserve">
     <value>Use of undefined opcode value {0} for event {1}.</value>
+  </data>
+  <data name="EventSource_UnknownEtwTrait" xml:space="preserve">
+    <value>Unknown ETW trait "{0}".</value>
   </data>
   <data name="EventSource_UnsupportedEventTypeInManifest" xml:space="preserve">
     <value>Unsupported type {0} in event source.</value>
@@ -2295,10 +2369,10 @@
     <value>Index (zero based) must be greater than or equal to zero and less than the size of the argument list.</value>
   </data>
   <data name="Format_InvalidEnumFormatSpecification" xml:space="preserve">
-    <value>Format String can be only "G", "g", "X", "x", "F", "f", "D" or "d".</value>
+    <value>Format string can be only "G", "g", "X", "x", "F", "f", "D" or "d".</value>
   </data>
   <data name="Format_InvalidGuidFormatSpecification" xml:space="preserve">
-    <value>Format String can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".</value>
+    <value>Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".</value>
   </data>
   <data name="Format_InvalidString" xml:space="preserve">
     <value>Input string was not in a correct format.</value>
@@ -2353,9 +2427,6 @@
   </data>
   <data name="IndexOutOfRange_ArrayRankIndex" xml:space="preserve">
     <value>Array does not have that many dimensions.</value>
-  </data>
-  <data name="IndexOutOfRange_IORaceCondition" xml:space="preserve">
-    <value>Probable I/O race condition detected while copying memory. The I/O package is not thread safe by default. In multithreaded applications, a stream must be accessed in a thread-safe way, such as a thread-safe wrapper returned by TextReader's or TextWriter's Synchronized methods. This also applies to classes like StreamWriter and StreamReader.</value>
   </data>
   <data name="IndexOutOfRange_UMSPosition" xml:space="preserve">
     <value>Unmanaged memory stream position was beyond the capacity of the stream.</value>
@@ -3169,7 +3240,7 @@
   </data>
   <data name="PlatformNotSupported_Remoting" xml:space="preserve">
     <value>Remoting is not supported on this platform.</value>
-  </data>   
+  </data>
   <data name="PlatformNotSupported_SecureBinarySerialization" xml:space="preserve">
     <value>Secure binary serialization is not supported on this platform.</value>
   </data>
@@ -3595,5 +3666,35 @@
   </data>
   <data name="SynchronizationLockException_MisMatchedWrite" xml:space="preserve">
     <value>The write lock is being released without being held.</value>
+  </data>
+  <data name="ConcurrentStack_PushPopRange_CountOutOfRange" xml:space="preserve">
+    <value>The count argument must be greater than or equal to zero.</value>
+  </data>
+  <data name="ConcurrentStack_PushPopRange_InvalidCount" xml:space="preserve">
+    <value>The sum of the startIndex and count arguments must be less than or equal to the collection's Count.</value>
+  </data>
+  <data name="ConcurrentStack_PushPopRange_StartOutOfRange" xml:space="preserve">
+    <value>The startIndex argument must be greater than or equal to zero.</value>
+  </data>
+  <data name="ConcurrentDictionary_SourceContainsDuplicateKeys" xml:space="preserve">
+    <value>The source argument contains duplicate keys.</value>
+  </data>
+  <data name="NotSupported_SignatureType" xml:space="preserve">
+    <value>This method is not supported on signature types.</value>
+  </data>
+  <data name="Memory_ThrowIfDisposed" xml:space="preserve">
+    <value>Memory&lt;T&gt; has been disposed.</value>
+  </data>
+  <data name="Memory_OutstandingReferences" xml:space="preserve">
+    <value>Release all references before disposing this instance.</value>
+  </data>
+  <data name="HashCode_HashCodeNotSupported" xml:space="preserve">
+    <value>HashCode is a mutable struct and should not be compared with other HashCodes. Use ToHashCode to retrieve the computed hash code.</value>
+  </data>
+  <data name="HashCode_EqualityNotSupported" xml:space="preserve">
+    <value>HashCode is a mutable struct and should not be compared with other HashCodes.</value>
+  </data>
+  <data name="Arg_TypeNotSupported" xml:space="preserve">
+    <value>Specified type is not supported</value>
   </data>
 </root>

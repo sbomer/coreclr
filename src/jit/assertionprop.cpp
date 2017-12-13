@@ -26,7 +26,7 @@ Compiler::fgWalkResult Compiler::optAddCopiesCallback(GenTreePtr* pTree, fgWalkD
 {
     GenTreePtr tree = *pTree;
 
-    if (tree->OperKind() & GTK_ASGOP)
+    if (tree->OperIsAssignment())
     {
         GenTreePtr op1  = tree->gtOp.gtOp1;
         Compiler*  comp = data->compiler;
@@ -455,7 +455,7 @@ void Compiler::optAddCopies()
             GenTreePtr tree = optAddCopyAsgnNode;
             GenTreePtr op1  = tree->gtOp.gtOp1;
 
-            noway_assert(tree && op1 && (tree->OperKind() & GTK_ASGOP) && (op1->gtOper == GT_LCL_VAR) &&
+            noway_assert(tree && op1 && tree->OperIsAssignment() && (op1->gtOper == GT_LCL_VAR) &&
                          (op1->gtLclVarCommon.gtLclNum == lclNum));
 
             /*  TODO-Review: BB_UNITY_WEIGHT is not the correct block weight */
@@ -509,7 +509,7 @@ void Compiler::optAddCopies()
 
 ASSERT_TP& Compiler::GetAssertionDep(unsigned lclNum)
 {
-    ExpandArray<ASSERT_TP>& dep = *optAssertionDep;
+    JitExpandArray<ASSERT_TP>& dep = *optAssertionDep;
     if (dep[lclNum] == nullptr)
     {
         dep[lclNum] = BitVecOps::MakeEmpty(apTraits);
@@ -542,7 +542,7 @@ void Compiler::optAssertionInit(bool isLocalProp)
     // Note this tracks at most only 256 assertions.
     static const AssertionIndex countFunc[] = {64, 128, 256, 64};
     static const unsigned       lowerBound  = 0;
-    static const unsigned       upperBound  = sizeof(countFunc) / sizeof(countFunc[0]) - 1;
+    static const unsigned       upperBound  = _countof(countFunc) - 1;
     const unsigned              codeSize    = info.compILCodeSize / 512;
     optMaxAssertionCount                    = countFunc[isLocalProp ? lowerBound : min(upperBound, codeSize)];
 
@@ -559,7 +559,7 @@ void Compiler::optAssertionInit(bool isLocalProp)
 
     if (optAssertionDep == nullptr)
     {
-        optAssertionDep = new (this, CMK_AssertionProp) ExpandArray<ASSERT_TP>(getAllocator(), max(1, lvaCount));
+        optAssertionDep = new (this, CMK_AssertionProp) JitExpandArray<ASSERT_TP>(getAllocator(), max(1, lvaCount));
     }
 
     optAssertionTraitsInit(optMaxAssertionCount);
@@ -2093,7 +2093,7 @@ void Compiler::optAssertionGen(GenTreePtr tree)
         case GT_CALL:
             // A virtual call can create a non-null assertion. We transform some virtual calls into non-virtual calls
             // with a GTF_CALL_NULLCHECK flag set.
-            if ((tree->gtFlags & GTF_CALL_NULLCHECK) || ((tree->gtFlags & GTF_CALL_VIRT_KIND_MASK) != GTF_CALL_NONVIRT))
+            if ((tree->gtFlags & GTF_CALL_NULLCHECK) || tree->AsCall()->IsVirtual())
             {
                 //  Retrieve the 'this' arg
                 GenTreePtr thisArg = gtGetThisArg(tree->AsCall());
@@ -3421,7 +3421,7 @@ GenTreePtr Compiler::optAssertionProp_Comma(ASSERT_VALARG_TP assertions, const G
     if ((tree->gtGetOp1()->OperGet() == GT_ARR_BOUNDS_CHECK) &&
         ((tree->gtGetOp1()->gtFlags & GTF_ARR_BOUND_INBND) != 0))
     {
-        optRemoveRangeCheck(tree, stmt, true, GTF_ASG, true /* force remove */);
+        optRemoveRangeCheck(tree, stmt);
         return optAssertionProp_Update(tree, tree, stmt);
     }
     return nullptr;
@@ -3475,6 +3475,7 @@ GenTreePtr Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, const Gen
         }
 #endif
         tree->gtFlags &= ~GTF_EXCEPT;
+        tree->gtFlags |= GTF_IND_NONFAULTING;
 
         // Set this flag to prevent reordering
         tree->gtFlags |= GTF_ORDER_SIDEEFF;
@@ -4562,7 +4563,7 @@ ASSERT_TP* Compiler::optInitAssertionDataflowFlags()
     }
     // Compute the data flow values for all tracked expressions
     // IN and OUT never change for the initial basic block B1
-    BitVecOps::OldStyleClearD(apTraits, fgFirstBB->bbAssertionIn);
+    BitVecOps::ClearD(apTraits, fgFirstBB->bbAssertionIn);
     return jumpDestOut;
 }
 
@@ -4781,7 +4782,9 @@ Compiler::fgWalkResult Compiler::optVNConstantPropCurStmt(BasicBlock* block, Gen
         case GT_RSH:
         case GT_RSZ:
         case GT_NEG:
+#ifdef LEGACY_BACKEND
         case GT_CHS:
+#endif
         case GT_CAST:
         case GT_INTRINSIC:
             break;

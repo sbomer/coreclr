@@ -142,8 +142,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             GenTreeIntConCommon* con    = tree->AsIntConCommon();
             ssize_t              cnsVal = con->IconValue();
 
-            bool needReloc = compiler->opts.compReloc && tree->IsIconHandle();
-            if (needReloc)
+            if (con->ImmedValNeedsReloc(compiler))
             {
                 instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal);
                 regTracker.rsTrackRegTrash(targetReg);
@@ -347,7 +346,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 //      There are 2 ways depending from build version to generate code for localloc:
 //          1) For debug build where memory should be initialized we generate loop
 //             which invoke push {tmpReg} N times.
-//          2) Fore /o build  However, we tickle the pages to ensure that SP is always
+//          2) For non-debug build, we tickle the pages to ensure that SP is always
 //             valid and is in sync with the "stack guard page". Amount of iteration
 //             is N/eeGetPageSize().
 //
@@ -356,7 +355,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 //          1) It's not needed to generate loop for zero size allocation
 //          2) For small allocation (less than 4 store) we unroll loop
 //          3) For allocation less than eeGetPageSize() and when it's not needed to initialize
-//             memory to zero, we can just increment SP.
+//             memory to zero, we can just decrement SP.
 //
 // Notes: Size N should be aligned to STACK_ALIGN before any allocation
 //
@@ -530,17 +529,17 @@ void CodeGen::genLclHeap(GenTreePtr tree)
         // to tickle the pages to ensure that SP is always valid and is
         // in sync with the "stack guard page".  Note that in the worst
         // case SP is on the last byte of the guard page.  Thus you must
-        // touch SP+0 first not SP+0x1000.
+        // touch SP-0 first not SP-0x1000.
         //
         // Another subtlety is that you don't want SP to be exactly on the
         // boundary of the guard page because PUSH is predecrement, thus
         // call setup would not touch the guard page but just beyond it
         //
         // Note that we go through a few hoops so that SP never points to
-        // illegal pages at any time during the ticking process
+        // illegal pages at any time during the tickling process
         //
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
-        //       jb    Loop                    // result is smaller than orignial SP (no wrap around)
+        //       bvc   Loop                    // result is smaller than original SP (no wrap around)
         //       mov   regCnt, #0              // Overflow, pick lowest possible value
         //
         //  Loop:
@@ -566,7 +565,7 @@ void CodeGen::genLclHeap(GenTreePtr tree)
 
         inst_JMP(EJ_vc, loop); // branch if the V flag is not set
 
-        // Ups... Overflow, set regCnt to lowest possible value
+        // Overflow, set regCnt to lowest possible value
         instGen_Set_Reg_To_Zero(EA_PTRSIZE, regCnt);
 
         genDefineTempLabel(loop);
@@ -582,7 +581,7 @@ void CodeGen::genLclHeap(GenTreePtr tree)
         inst_JMP(jmpLTU, done);
 
         // Update SP to be at the next page of stack that we will tickle
-        getEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_SPBASE, regCnt);
+        getEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp);
 
         // Jump to loop and tickle new stack address
         inst_JMP(EJ_jmp, loop);
@@ -772,15 +771,6 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
     return ins;
 }
 
-// Generates CpBlk code by performing a loop unroll
-// Preconditions:
-//  The size argument of the CpBlk node is a constant and <= 64 bytes.
-//  This may seem small but covers >95% of the cases in several framework assemblies.
-void CodeGen::genCodeForCpBlkUnroll(GenTreeBlk* cpBlkNode)
-{
-    NYI_ARM("genCodeForCpBlkUnroll");
-}
-
 // Generate code for InitBlk by performing a loop unroll
 // Preconditions:
 //   a) Both the size and fill byte value are integer constants.
@@ -823,7 +813,7 @@ void CodeGen::genCodeForNegNot(GenTree* tree)
     }
     else
     {
-        getEmitter()->emitIns_R_R_I(ins, emitTypeSize(tree), targetReg, operandReg, 0);
+        getEmitter()->emitIns_R_R_I(ins, emitTypeSize(tree), targetReg, operandReg, 0, INS_FLAGS_SET);
     }
 
     genProduceReg(tree);
@@ -902,9 +892,18 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
         for (unsigned i = 0; i < slots; ++i)
         {
             if (gcPtrs[i] == GCT_GCREF)
+            {
                 attr = EA_GCREF;
+            }
             else if (gcPtrs[i] == GCT_BYREF)
+            {
                 attr = EA_BYREF;
+            }
+            else
+            {
+                attr = EA_PTRSIZE;
+            }
+
             emit->emitIns_R_R_I(INS_ldr, attr, tmpReg, REG_WRITE_BARRIER_SRC_BYREF, TARGET_POINTER_SIZE,
                                 INS_FLAGS_DONT_CARE, INS_OPTS_LDST_POST_INC);
             emit->emitIns_R_R_I(INS_str, attr, tmpReg, REG_WRITE_BARRIER_DST_BYREF, TARGET_POINTER_SIZE,
@@ -1555,7 +1554,7 @@ void CodeGen::genIntToFloatCast(GenTreePtr treeNode)
     assert(genIsValidIntReg(op1->gtRegNum)); // Must be a valid int reg.
 
     var_types dstType = treeNode->CastToType();
-    var_types srcType = op1->TypeGet();
+    var_types srcType = genActualType(op1->TypeGet());
     assert(!varTypeIsFloating(srcType) && varTypeIsFloating(dstType));
 
     // force the srcType to unsigned if GT_UNSIGNED flag is set
@@ -1565,9 +1564,6 @@ void CodeGen::genIntToFloatCast(GenTreePtr treeNode)
     }
 
     // We only expect a srcType whose size is EA_4BYTE.
-    // For conversions from small types (byte/sbyte/int16/uint16) to float/double,
-    // we expect the front-end or lowering phase to have generated two levels of cast.
-    //
     emitAttr srcSize = EA_ATTR(genTypeSize(srcType));
     noway_assert(srcSize == EA_4BYTE);
 
@@ -1724,7 +1720,6 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
     }
 
     regTracker.rsTrashRegSet(RBM_CALLEE_TRASH);
-    regTracker.rsTrashRegsForGCInterruptability();
 }
 
 //------------------------------------------------------------------------

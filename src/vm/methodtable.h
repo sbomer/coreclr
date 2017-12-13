@@ -405,6 +405,9 @@ struct MethodTableWriteableData
 
         enum_flag_SkipWinRTOverride         = 0x00000100,     // No WinRT override is needed
 
+        enum_flag_CanCompareBitsOrUseFastGetHashCode       = 0x00000200,     // Is any field type or sub field type overrode Equals or GetHashCode
+        enum_flag_HasCheckedCanCompareBitsOrUseFastGetHashCode   = 0x00000400,  // Whether we have checked the overridden Equals or GetHashCode
+
 #ifdef FEATURE_PREJIT
         // These flags are used only at ngen time. We store them here since
         // we are running out of available flags in MethodTable. They may eventually 
@@ -1250,6 +1253,41 @@ public:
         WRAPPER_NO_CONTRACT;
         FastInterlockOr(EnsureWritablePages(&GetWriteableDataForWrite_NoLogging()->m_dwFlags), MethodTableWriteableData::enum_flag_SkipWinRTOverride);
     }
+
+    inline BOOL CanCompareBitsOrUseFastGetHashCode()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (GetWriteableData_NoLogging()->m_dwFlags & MethodTableWriteableData::enum_flag_CanCompareBitsOrUseFastGetHashCode);
+    }
+
+    // If canCompare is true, this method ensure an atomic operation for setting
+    // enum_flag_HasCheckedCanCompareBitsOrUseFastGetHashCode and enum_flag_CanCompareBitsOrUseFastGetHashCode flags.
+    inline void SetCanCompareBitsOrUseFastGetHashCode(BOOL canCompare)
+    {
+        WRAPPER_NO_CONTRACT
+        if (canCompare)
+        {
+            // Set checked and canCompare flags in one interlocked operation.
+            FastInterlockOr(EnsureWritablePages(&GetWriteableDataForWrite_NoLogging()->m_dwFlags),
+                MethodTableWriteableData::enum_flag_HasCheckedCanCompareBitsOrUseFastGetHashCode | MethodTableWriteableData::enum_flag_CanCompareBitsOrUseFastGetHashCode);
+        }
+        else
+        {
+            SetHasCheckedCanCompareBitsOrUseFastGetHashCode();
+        }
+    }
+
+    inline BOOL HasCheckedCanCompareBitsOrUseFastGetHashCode()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (GetWriteableData_NoLogging()->m_dwFlags & MethodTableWriteableData::enum_flag_HasCheckedCanCompareBitsOrUseFastGetHashCode);
+    }
+
+    inline void SetHasCheckedCanCompareBitsOrUseFastGetHashCode()
+    {
+        WRAPPER_NO_CONTRACT;
+        FastInterlockOr(EnsureWritablePages(&GetWriteableDataForWrite_NoLogging()->m_dwFlags), MethodTableWriteableData::enum_flag_HasCheckedCanCompareBitsOrUseFastGetHashCode);
+    }
     
     inline void SetIsDependenciesLoaded()
     {
@@ -1358,6 +1396,18 @@ public:
     inline void SetHasModuleDependencies()
     {
         SetFlag(enum_flag_HasModuleDependencies);
+    }
+
+    inline BOOL IsIntrinsicType()
+    {
+        LIMITED_METHOD_DAC_CONTRACT;;
+        return GetFlag(enum_flag_IsIntrinsicType);
+    }
+
+    inline void SetIsIntrinsicType()
+    {
+        LIMITED_METHOD_DAC_CONTRACT;;
+        SetFlag(enum_flag_IsIntrinsicType);
     }
 
     // See the comment in code:MethodTable.DoFullyLoad for detailed description.
@@ -2030,7 +2080,17 @@ public:
         LIMITED_METHOD_CONTRACT;
         SetFlag(enum_flag_IsHFA);
     }
+#else // !FEATURE_HFA
+    bool IsHFA();
 #endif // FEATURE_HFA
+
+    // Get the HFA type. This is supported both with FEATURE_HFA, in which case it
+    // depends on the cached bit on the class, or without, in which case it is recomputed
+    // for each invocation.
+    CorElementType GetHFAType();
+    // The managed and unmanaged HFA type can differ for types with layout. The following two methods return the unmanaged HFA type.
+    bool IsNativeHFA();
+    CorElementType GetNativeHFAType();
 
 #if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
     inline bool IsRegPassedStruct()
@@ -2045,15 +2105,6 @@ public:
         SetFlag(enum_flag_IsRegStructPassed);
     }
 #endif // defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
-
-#ifdef FEATURE_HFA
-
-    CorElementType GetHFAType();
-
-    // The managed and unmanaged HFA type can differ for types with layout. The following two methods return the unmanaged HFA type.
-    bool IsNativeHFA();
-    CorElementType GetNativeHFAType();
-#endif // FEATURE_HFA
 
 #ifdef FEATURE_64BIT_ALIGNMENT
     // Returns true iff the native view of this type requires 64-bit aligment.
@@ -3964,7 +4015,7 @@ private:
 
         enum_flag_HasModuleDependencies     = 0x0080,
 
-        // enum_Unused                      = 0x0100,
+        enum_flag_IsIntrinsicType           = 0x0100,
 
         enum_flag_RequiresDispatchTokenFat  = 0x0200,
 

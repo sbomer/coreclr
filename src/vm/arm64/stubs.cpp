@@ -14,11 +14,10 @@
 #include "asmconstants.h"
 #include "virtualcallstub.h"
 #include "jitinterface.h"
+#include "ecall.h"
 
-EXTERN_C void JIT_GetSharedNonGCStaticBase_SingleAppDomain();
-EXTERN_C void JIT_GetSharedNonGCStaticBaseNoCtor_SingleAppDomain();
-EXTERN_C void JIT_GetSharedGCStaticBase_SingleAppDomain();
-EXTERN_C void JIT_GetSharedGCStaticBaseNoCtor_SingleAppDomain();
+EXTERN_C void JIT_UpdateWriteBarrierState(bool skipEphemeralCheck);
+
 
 #ifndef DACCESS_COMPILE
 //-----------------------------------------------------------------------
@@ -1086,14 +1085,39 @@ void JIT_TailCall()
 #if !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 void InitJITHelpers1()
 {
-    if(IsSingleAppDomain())
+#ifdef FEATURE_PAL // TODO
+    STANDARD_VM_CONTRACT;
+
+    _ASSERTE(g_SystemInfo.dwNumberOfProcessors != 0);
+
+    // Allocation helpers, faster but non-logging
+    if (!((TrackAllocationsEnabled()) ||
+        (LoggingOn(LF_GCALLOC, LL_INFO10))
+#ifdef _DEBUG
+        || (g_pConfig->ShouldInjectFault(INJECTFAULT_GCHEAP) != 0)
+#endif // _DEBUG
+        ))
     {
-        SetJitHelperFunction(CORINFO_HELP_GETSHARED_GCSTATIC_BASE,          JIT_GetSharedGCStaticBase_SingleAppDomain);
-        SetJitHelperFunction(CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE,       JIT_GetSharedNonGCStaticBase_SingleAppDomain);
-        SetJitHelperFunction(CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR,   JIT_GetSharedGCStaticBaseNoCtor_SingleAppDomain);
-        SetJitHelperFunction(CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR,JIT_GetSharedNonGCStaticBaseNoCtor_SingleAppDomain);
+        if (GCHeapUtilities::UseThreadAllocationContexts())
+        {
+            SetJitHelperFunction(CORINFO_HELP_NEWSFAST, JIT_NewS_MP_FastPortable);
+            SetJitHelperFunction(CORINFO_HELP_NEWSFAST_ALIGN8, JIT_NewS_MP_FastPortable);
+            SetJitHelperFunction(CORINFO_HELP_NEWARR_1_VC, JIT_NewArr1VC_MP_FastPortable);
+            SetJitHelperFunction(CORINFO_HELP_NEWARR_1_OBJ, JIT_NewArr1OBJ_MP_FastPortable);
+
+            ECall::DynamicallyAssignFCallImpl(GetEEFuncEntryPoint(AllocateString_MP_FastPortable), ECall::FastAllocateString);
+        }
     }
+#endif
+
+    JIT_UpdateWriteBarrierState(GCHeapUtilities::IsServerHeap());
 }
+#ifndef FEATURE_PAL // TODO-ARM64-WINDOWS #13592
+EXTERN_C void JIT_UpdateWriteBarrierState(bool) {}
+#endif
+
+#else
+EXTERN_C void JIT_UpdateWriteBarrierState(bool) {}
 #endif // !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 
 EXTERN_C void __stdcall ProfileEnterNaked(UINT_PTR clientData)
@@ -1312,28 +1336,38 @@ LONG CLRNoCatchHandler(EXCEPTION_POINTERS* pExceptionInfo, PVOID pv)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-void StompWriteBarrierEphemeral(bool isRuntimeSuspended)
+void FlushWriteBarrierInstructionCache()
 {
-    return;
+    // this wouldn't be called in arm64, just to comply with gchelpers.h
 }
 
-void StompWriteBarrierResize(bool isRuntimeSuspended, bool bReqUpperBoundsCheck)
+#ifndef CROSSGEN_COMPILE
+int StompWriteBarrierEphemeral(bool isRuntimeSuspended)
 {
-    return;
+    JIT_UpdateWriteBarrierState(GCHeapUtilities::IsServerHeap());
+    return SWB_PASS;
+}
+
+int StompWriteBarrierResize(bool isRuntimeSuspended, bool bReqUpperBoundsCheck)
+{
+    JIT_UpdateWriteBarrierState(GCHeapUtilities::IsServerHeap());
+    return SWB_PASS;
 }
 
 #ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-void SwitchToWriteWatchBarrier(bool isRuntimeSuspended)
+int SwitchToWriteWatchBarrier(bool isRuntimeSuspended)
 {
-    return;
+    JIT_UpdateWriteBarrierState(GCHeapUtilities::IsServerHeap());
+    return SWB_PASS;
 }
 
-void SwitchToNonWriteWatchBarrier(bool isRuntimeSuspended)
+int SwitchToNonWriteWatchBarrier(bool isRuntimeSuspended)
 {
-    return;
+    JIT_UpdateWriteBarrierState(GCHeapUtilities::IsServerHeap());
+    return SWB_PASS;
 }
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-
+#endif // CROSSGEN_COMPILE
 
 #ifdef DACCESS_COMPILE
 BOOL GetAnyThunkTarget (T_CONTEXT *pctx, TADDR *pTarget, TADDR *pTargetMethodDesc)
@@ -1799,33 +1833,6 @@ void StubLinkerCPU::EmitCallManagedMethod(MethodDesc *pMD, BOOL fTailCall)
 }
 
 #ifndef CROSSGEN_COMPILE
-
-EXTERN_C UINT32 _tls_index;
-void StubLinkerCPU::EmitGetThreadInlined(IntReg Xt)
-{
-#if defined(FEATURE_IMPLICIT_TLS) && !defined(FEATURE_PAL)
-    // Trashes x8.
-    IntReg X8 = IntReg(8);
-    _ASSERTE(Xt != X8);
-    
-    // Load the _tls_index
-    EmitLabelRef(NewExternalCodeLabel((LPVOID)&_tls_index), reinterpret_cast<LoadFromLabelInstructionFormat&>(gLoadFromLabelIF), X8);
-    
-    // Load Teb->ThreadLocalStoragePointer into x8
-    EmitLoadStoreRegImm(eLOAD, Xt, IntReg(18), offsetof(_TEB, ThreadLocalStoragePointer));
-
-    // index it with _tls_index, i.e Teb->ThreadLocalStoragePointer[_tls_index]. 
-    // This will give us the TLS section for the module on this thread's context
-    EmitLoadRegReg(Xt, Xt, X8, eLSL);
-
-    // read the Thread* from TLS section
-    EmitAddImm(Xt, Xt, OFFSETOF__TLS__tls_CurrentThread);
-    EmitLoadStoreRegImm(eLOAD, Xt, Xt, 0);
-#else
-    _ASSERTE(!"NYI:StubLinkerCPU::EmitGetThreadInlined");
-#endif
-
-}
 
 void StubLinkerCPU::EmitUnboxMethodStub(MethodDesc *pMD)
 {

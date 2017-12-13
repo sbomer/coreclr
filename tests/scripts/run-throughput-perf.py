@@ -84,6 +84,7 @@ jit_list = {
     'Windows_NT': {
         'x64': 'clrjit.dll',
         'x86': 'clrjit.dll',
+        'x86lb': 'legacyjit.dll'
     },
     'Linux': {
         'x64': 'libclrjit.so'
@@ -92,7 +93,8 @@ jit_list = {
 
 os_group_list = {
     'Windows_NT': 'Windows_NT',
-    'Ubuntu14.04': 'Linux'
+    'Ubuntu14.04': 'Linux',
+    'Ubuntu16.04': 'Linux'
 }
 
 python_exe_list = {
@@ -117,6 +119,8 @@ parser.add_argument('-assembly_root', dest='assembly_root', default=None)
 parser.add_argument('-benchview_path', dest='benchview_path', default=None)
 parser.add_argument('-iterations', dest='iterations', default=5, type=int)
 parser.add_argument('-opt_level', dest='opt_level', default='full_opt')
+parser.add_argument('-jit_name', dest='jit_name', default='ryujit')
+parser.add_argument('-nopgo', dest='no_pgo', default=False, action='store_true')
 
 ##########################################################################
 # Helper Functions
@@ -143,6 +147,8 @@ def validate_args(args):
     benchview_path = args.benchview_path
     iterations = args.iterations
     opt_level = args.opt_level.lower()
+    jit_name = args.jit_name.lower()
+    no_pgo = args.no_pgo
 
     def validate_arg(arg, check):
         """ Validate an individual arg
@@ -163,8 +169,9 @@ def validate_args(args):
     valid_archs = {'Windows_NT': ['x86', 'x64'], 'Linux': ['x64']}
     valid_build_types = ['Release']
     valid_run_types = ['rolling', 'private']
-    valid_os = ['Windows_NT', 'Ubuntu14.04']
+    valid_os = ['Windows_NT', 'Ubuntu14.04', 'Ubuntu16.04']
     valid_opt_levels = ['full_opt', 'min_opt']
+    valid_jit_names = {'x64': ['ryujit'], 'x86': ['ryujit', 'legacy_backend']}
 
     arch = next((a for a in valid_archs if a.lower() == arch.lower()), arch)
     build_type = next((b for b in valid_build_types if b.lower() == build_type.lower()), build_type)
@@ -178,6 +185,7 @@ def validate_args(args):
     validate_arg(run_type, lambda item: item in valid_run_types)
     validate_arg(iterations, lambda item: item > 0)
     validate_arg(opt_level, lambda item: item in valid_opt_levels)
+    validate_arg(jit_name, lambda item: item in valid_jit_names[arch])
 
     if clr_root is None:
         raise Exception('--clr_root must be set')
@@ -195,7 +203,7 @@ def validate_args(args):
         benchview_path = os.path.normpath(benchview_path)
         validate_arg(benchview_path, lambda item: os.path.isdir(benchview_path))
 
-    args = (arch, operating_system, os_group, build_type, run_type, clr_root, assembly_root, benchview_path, iterations, opt_level)
+    args = (arch, operating_system, os_group, build_type, run_type, clr_root, assembly_root, benchview_path, iterations, opt_level, jit_name, no_pgo)
 
     # Log configuration
     log('Configuration:')
@@ -204,6 +212,8 @@ def validate_args(args):
     log(' os_group: %s' % os_group)
     log(' build_type: %s' % build_type)
     log(' opt_level: %s' % opt_level)
+    log(' jit_name: %s' % jit_name)
+    log(' no_pgo: %s' % no_pgo)
     log(' run_type: %s' % run_type)
     log(' iterations: %d' % iterations)
     log(' clr_root: %s' % clr_root)
@@ -261,7 +271,7 @@ def generateCSV(dll_name, dll_runtimes):
 
     return csv_file_name
 
-def runIterations(dll_name, dll_path, iterations, crossgen_path, jit_path, assemblies_path, opt_level):
+def runIterations(dll_name, dll_path, iterations, crossgen_path, jit_path, assemblies_path, opt_level, jit_name):
     """ Run throughput testing for a given dll
     Args:
         dll_name: the name of the dll
@@ -289,6 +299,10 @@ def runIterations(dll_name, dll_path, iterations, crossgen_path, jit_path, assem
 
     if opt_level == 'min_opt':
         my_env['COMPlus_JITMinOpts'] = '1'
+
+    if jit_name == 'legacy_backend':
+        my_env['COMPlus_AltJit'] = '*'
+        my_env['COMPlus_AltJitNgen'] = '*'
 
     log(" ".join(run_args))
 
@@ -322,8 +336,16 @@ def main(args):
     global os_group_list
     global python_exe_list
 
-    architecture, operating_system, os_group, build_type, run_type, clr_root, assembly_root, benchview_path, iterations, opt_level = validate_args(args)
+    architecture, operating_system, os_group, build_type, run_type, clr_root, assembly_root, benchview_path, iterations, opt_level, jit_name, no_pgo = validate_args(args)
     arch = architecture
+
+    if jit_name == 'legacy_backend':
+        architecture = 'x86lb'
+
+    pgo_string = 'pgo'
+
+    if no_pgo:
+        pgo_string = 'nopgo'
 
     current_dir = os.getcwd()
     jit = jit_list[os_group][architecture]
@@ -361,7 +383,7 @@ def main(args):
                 (not dll_file_name in dll_exclude_list["All"])):
             dll_name = dll_file_name.replace(".dll", "")
             dll_path = os.path.join(assembly_root, dll_file_name)
-            dll_elapsed_times = runIterations(dll_file_name, dll_path, iterations, crossgen_path, jit_path, assembly_root, opt_level)
+            dll_elapsed_times = runIterations(dll_file_name, dll_path, iterations, crossgen_path, jit_path, assembly_root, opt_level, jit_name)
 
             if len(dll_elapsed_times) != 0:
                 if not benchview_path is None:
@@ -417,7 +439,13 @@ def main(args):
                 "--config",
                 "OptLevel",
                 opt_level,
-                "--arch",
+                "--config",
+                "JitName",
+                jit_name,
+                "--config",
+                "PGO",
+                pgo_string,
+                "--architecture",
                 architecture,
                 "--machinepool",
                 "PerfSnake"
@@ -425,6 +453,9 @@ def main(args):
         log(" ".join(submission_args))
         proc = subprocess.Popen(submission_args)
         proc.communicate()
+        if proc.returncode != 0:
+            os.chdir(current_dir)
+            return -1
 
         # Call upload.py
         upload_args = [python_exe,
@@ -436,6 +467,9 @@ def main(args):
         log(" ".join(upload_args))
         proc = subprocess.Popen(upload_args)
         proc.communicate()
+        if proc.returncode != 0:
+            os.chdir(current_dir)
+            return -1
 
     os.chdir(current_dir)
 

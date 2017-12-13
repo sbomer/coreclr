@@ -676,16 +676,7 @@ BOOL CEEInfo::shouldEnforceCallvirtRestriction(
         CORINFO_MODULE_HANDLE scopeHnd)
 {
     LIMITED_METHOD_CONTRACT;
-    // see vsw 599197
-    // verification rule added in whidbey requiring virtual methods
-    // to be called via callvirt except if certain other rules are
-    // obeyed.
-
-    if (g_pConfig->LegacyVirtualMethodCallVerification())
-        return false;
-    else 
-        return true;
-       
+    return TRUE;       
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -2267,7 +2258,14 @@ unsigned CEEInfo::getClassGClayout (CORINFO_CLASS_HANDLE clsHnd, BYTE* gcPtrs)
 
     MethodTable* pMT = VMClsHnd.GetMethodTable();
 
-    if (pMT->IsByRefLike())
+    if (VMClsHnd.IsNativeValueType())
+    {
+        // native value types have no GC pointers
+        result = 0;
+        memset(gcPtrs, TYPE_GC_NONE,
+               (VMClsHnd.GetSize() + sizeof(void*) -1)/ sizeof(void*));
+    }
+    else if (pMT->IsByRefLike())
     {
         // TODO: TypedReference should ideally be implemented as a by-ref-like struct containing a ByReference<T> field, in
         // which case the check for g_TypedReferenceMT below would not be necessary
@@ -2286,13 +2284,6 @@ unsigned CEEInfo::getClassGClayout (CORINFO_CLASS_HANDLE clsHnd, BYTE* gcPtrs)
             // types (TypedReference can not be.)
             result = ComputeGCLayout(VMClsHnd.AsMethodTable(), gcPtrs);
         }
-    }
-    else if (VMClsHnd.IsNativeValueType())
-    {
-        // native value types have no GC pointers
-        result = 0;
-        memset(gcPtrs, TYPE_GC_NONE,
-               (VMClsHnd.GetSize() + sizeof(void*) -1)/ sizeof(void*));
     }
     else
     {
@@ -3132,9 +3123,6 @@ void CEEInfo::ComputeRuntimeLookupForSharedGenericToken(DictionaryEntryKind entr
 #ifdef FEATURE_READYTORUN_COMPILER
     if (IsReadyToRunCompilation())
     {
-#if defined(_TARGET_ARM_)
-        ThrowHR(E_NOTIMPL); /* TODO - NYI */
-#endif
         pResultLookup->lookupKind.runtimeLookupArgs = NULL;
 
         switch (entryKind)
@@ -4041,6 +4029,9 @@ DWORD CEEInfo::getClassAttribsInternal (CORINFO_CLASS_HANDLE clsHnd)
 
         if (pClass->IsSealed())
             ret |= CORINFO_FLG_FINAL;
+
+        if (pMT->IsIntrinsicType())
+            ret |= CORINFO_FLG_INTRINSIC_TYPE;
     }
 
     return ret;
@@ -4512,6 +4503,49 @@ CorInfoType CEEInfo::getTypeForPrimitiveValueClass(
     return result;
 }
 
+/*********************************************************************/
+CorInfoType CEEInfo::getTypeForPrimitiveNumericClass(
+        CORINFO_CLASS_HANDLE clsHnd)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    CorInfoType result = CORINFO_TYPE_UNDEF;
+
+    JIT_TO_EE_TRANSITION_LEAF();
+
+    TypeHandle th(clsHnd);
+    _ASSERTE (!th.IsGenericVariable());
+
+    CorElementType ty = th.GetSignatureCorElementType();
+    switch (ty)
+    {
+        case ELEMENT_TYPE_I1:
+        case ELEMENT_TYPE_U1:
+        case ELEMENT_TYPE_I2:
+        case ELEMENT_TYPE_U2:
+        case ELEMENT_TYPE_I4:
+        case ELEMENT_TYPE_U4:
+        case ELEMENT_TYPE_I8:
+        case ELEMENT_TYPE_U8:
+        case ELEMENT_TYPE_R4:
+        case ELEMENT_TYPE_R8:
+            result = asCorInfoType(ty);
+            break;
+
+        default:
+            break;
+    }
+
+    JIT_TO_EE_TRANSITION_LEAF();
+
+    return result;
+}
+
 
 void CEEInfo::getGSCookie(GSCookie * pCookieVal, GSCookie ** ppCookieVal)
 {
@@ -4581,6 +4615,156 @@ BOOL CEEInfo::areTypesEquivalent(
     JIT_TO_EE_TRANSITION();
 
     result = ((TypeHandle)cls1).IsEquivalentTo((TypeHandle)cls2);
+
+    EE_TO_JIT_TRANSITION();
+
+    return result;
+}
+
+/*********************************************************************/
+// See if a cast from fromClass to toClass will succeed, fail, or needs
+// to be resolved at runtime.
+TypeCompareState CEEInfo::compareTypesForCast(
+        CORINFO_CLASS_HANDLE        fromClass,
+        CORINFO_CLASS_HANDLE        toClass)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    TypeCompareState result = TypeCompareState::May;
+
+    JIT_TO_EE_TRANSITION();
+
+    TypeHandle fromHnd = (TypeHandle) fromClass;
+    TypeHandle toHnd = (TypeHandle) toClass;
+
+#ifdef FEATURE_COMINTEROP
+    // If casting from a com object class, don't try to optimize.
+    if (fromHnd.IsComObjectType())
+    {
+        result = TypeCompareState::May;
+    }
+    else
+#endif // FEATURE_COMINTEROP
+
+    // If casting from ICastable, don't try to optimize
+    if (fromHnd.GetMethodTable()->IsICastable())
+    {
+        result = TypeCompareState::May;
+    }
+    // If casting to Nullable<T>, don't try to optimize
+    else if (Nullable::IsNullableType(toHnd))
+    {
+        result = TypeCompareState::May;
+    }
+    // If the types are not shared, we can check directly.
+    else if (!fromHnd.IsCanonicalSubtype() && !toHnd.IsCanonicalSubtype())
+    {
+        result = fromHnd.CanCastTo(toHnd) ? TypeCompareState::Must : TypeCompareState::MustNot;
+    }
+    // Casting from a shared type to an unshared type.
+    else if (fromHnd.IsCanonicalSubtype() && !toHnd.IsCanonicalSubtype())
+    {
+        // Only handle casts to interface types for now
+        if (toHnd.IsInterface())
+        {
+            // Do a preliminary check.
+            BOOL canCast = fromHnd.CanCastTo(toHnd);
+
+            // Pass back positive results unfiltered. The unknown type
+            // parameters in fromClass did not come into play.
+            if (canCast)
+            {
+                result = TypeCompareState::Must;
+            }
+            // For negative results, the unknown type parameter in
+            // fromClass might match some instantiated interface,
+            // either directly or via variance.
+            //
+            // However, CanCastTo will report failure in such cases since
+            // __Canon won't match the instantiated type on the
+            // interface (which can't be __Canon since we screened out
+            // canonical subtypes for toClass above). So only report
+            // failure if the interface is not instantiated.
+            else if (!toHnd.HasInstantiation())
+            {
+                result = TypeCompareState::MustNot;
+            }
+        }
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    // In R2R it is a breaking change for a previously positive
+    // cast to become negative, but not for a previously negative
+    // cast to become positive. So in R2R a negative result is
+    // always reported back as May.
+    if (IsReadyToRunCompilation() && (result == TypeCompareState::MustNot))
+    {
+        result = TypeCompareState::May;
+    }
+#endif // FEATURE_READYTORUN_COMPILER
+
+    EE_TO_JIT_TRANSITION();
+
+    return result;
+}
+
+/*********************************************************************/
+// See if types represented by cls1 and cls2 compare equal, not
+// equal, or the comparison needs to be resolved at runtime.
+TypeCompareState CEEInfo::compareTypesForEquality(
+        CORINFO_CLASS_HANDLE        cls1,
+        CORINFO_CLASS_HANDLE        cls2)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    TypeCompareState result = TypeCompareState::May;
+
+    JIT_TO_EE_TRANSITION();
+
+    TypeHandle hnd1 = (TypeHandle) cls1;
+    TypeHandle hnd2 = (TypeHandle) cls2;
+
+    // If neither type is a canonical subtype, type handle comparison suffices
+    if (!hnd1.IsCanonicalSubtype() && !hnd2.IsCanonicalSubtype())
+    {
+        result = (hnd1 == hnd2 ? TypeCompareState::Must : TypeCompareState::MustNot);
+    }
+    // If either or both types are canonical subtypes, we can sometimes prove inequality.
+    else
+    {
+        // If either is a value type then the types cannot
+        // be equal unless the type defs are the same.
+        if (hnd1.IsValueType() || hnd2.IsValueType())
+        {
+            if (!hnd1.GetMethodTable()->HasSameTypeDefAs(hnd2.GetMethodTable()))
+            {
+                result = TypeCompareState::MustNot;
+            }
+        }
+        // If we have two ref types that are not __Canon, then the
+        // types cannot be equal unless the type defs are the same.
+        else
+        {
+            TypeHandle canonHnd = TypeHandle(g_pCanonMethodTableClass);
+            if ((hnd1 != canonHnd) && (hnd2 != canonHnd))
+            {
+                if (!hnd1.GetMethodTable()->HasSameTypeDefAs(hnd2.GetMethodTable()))
+                {
+                    result = TypeCompareState::MustNot;
+                }
+            }
+        }
+    }
 
     EE_TO_JIT_TRANSITION();
 
@@ -6460,6 +6644,103 @@ const char* CEEInfo::getMethodName (CORINFO_METHOD_HANDLE ftnHnd, const char** s
     return result;
 }
 
+const char* CEEInfo::getMethodNameFromMetadata(CORINFO_METHOD_HANDLE ftnHnd, const char** className, const char** namespaceName)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    const char* result = NULL;
+    const char* classResult = NULL;
+    const char* namespaceResult = NULL;
+
+    JIT_TO_EE_TRANSITION();
+
+    MethodDesc *ftn = GetMethod(ftnHnd);
+    mdMethodDef token = ftn->GetMemberDef();
+
+    if (!IsNilToken(token))
+    {
+        if (!FAILED(ftn->GetMDImport()->GetNameOfMethodDef(token, &result)))
+        {
+            MethodTable* pMT = ftn->GetMethodTable();
+            classResult = pMT->GetFullyQualifiedNameInfo(&namespaceResult);
+        }
+    }
+
+    if (className != NULL)
+    {
+        *className = classResult;
+    }
+
+    if (namespaceName != NULL)
+    {
+        *namespaceName = namespaceResult;
+    }
+
+    EE_TO_JIT_TRANSITION();
+    
+    return result;
+}
+
+/*********************************************************************/
+const char* CEEInfo::getClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, const char** namespaceName)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    const char* result = NULL;
+    const char* namespaceResult = NULL;
+
+    JIT_TO_EE_TRANSITION();
+    TypeHandle VMClsHnd(cls);
+
+    if (!VMClsHnd.IsTypeDesc())
+    {
+        result = VMClsHnd.AsMethodTable()->GetFullyQualifiedNameInfo(&namespaceResult);
+    }
+   
+    if (namespaceName != NULL)
+    {
+        *namespaceName = namespaceResult;
+    }
+
+    EE_TO_JIT_TRANSITION();
+    
+    return result;
+}
+
+/*********************************************************************/
+CORINFO_CLASS_HANDLE CEEInfo::getTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    CORINFO_CLASS_HANDLE result = NULL;
+
+    JIT_TO_EE_TRANSITION_LEAF();
+
+    TypeHandle VMClsHnd(cls);
+    Instantiation inst = VMClsHnd.GetInstantiation();
+    TypeHandle typeArg = index < inst.GetNumArgs() ? inst[index] : NULL;
+    result = CORINFO_CLASS_HANDLE(typeArg.AsPtr());
+
+    EE_TO_JIT_TRANSITION_LEAF();
+    
+    return result;
+}
+
 /*********************************************************************/
 DWORD CEEInfo::getMethodAttribs (CORINFO_METHOD_HANDLE ftn)
 {
@@ -6514,6 +6795,8 @@ DWORD CEEInfo::getMethodAttribsInternal (CORINFO_METHOD_HANDLE ftn)
         result |= CORINFO_FLG_SYNCH;
     if (pMD->IsFCallOrIntrinsic())
         result |= CORINFO_FLG_NOGCCHECK | CORINFO_FLG_INTRINSIC;
+    if (pMD->IsJitIntrinsic())
+        result |= CORINFO_FLG_JIT_INTRINSIC;
     if (IsMdVirtual(attribs))
         result |= CORINFO_FLG_VIRTUAL;
     if (IsMdAbstract(attribs))
@@ -6705,18 +6988,7 @@ bool getILIntrinsicImplementation(MethodDesc * ftn,
     // Compare tokens to cover all generic instantiations
     // The body of the first method is simply ret Arg0. The second one first casts the arg to I4.
 
-    if (tk == MscorlibBinder::GetMethod(METHOD__JIT_HELPERS__UNSAFE_CAST)->GetMemberDef())
-    {
-        // Return the argument that was passed in.
-        static const BYTE ilcode[] = { CEE_LDARG_0, CEE_RET };
-        methInfo->ILCode = const_cast<BYTE*>(ilcode);
-        methInfo->ILCodeSize = sizeof(ilcode);
-        methInfo->maxStack = 1;
-        methInfo->EHcount = 0;
-        methInfo->options = (CorInfoOptions)0;
-        return true;
-    }
-    else if (tk == MscorlibBinder::GetMethod(METHOD__JIT_HELPERS__UNSAFE_CAST_TO_STACKPTR)->GetMemberDef())
+    if (tk == MscorlibBinder::GetMethod(METHOD__JIT_HELPERS__UNSAFE_CAST_TO_STACKPTR)->GetMemberDef())
     {
         // Return the argument that was passed in converted to IntPtr
         static const BYTE ilcode[] = { CEE_LDARG_0, CEE_CONV_I, CEE_RET };
@@ -6856,7 +7128,9 @@ bool getILIntrinsicImplementationForUnsafe(MethodDesc * ftn,
         methInfo->options = (CorInfoOptions)0;
         return true;
     }
-    else if (tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__BYREF_AS)->GetMemberDef())
+    else if (tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__BYREF_AS)->GetMemberDef() ||
+             tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__OBJECT_AS)->GetMemberDef() ||
+             tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__AS_REF)->GetMemberDef())
     {
         // Return the argument that was passed in.
         static const BYTE ilcode[] = { CEE_LDARG_0, CEE_RET };
@@ -6867,7 +7141,8 @@ bool getILIntrinsicImplementationForUnsafe(MethodDesc * ftn,
         methInfo->options = (CorInfoOptions)0;
         return true;
     }
-    else if (tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__BYREF_ADD)->GetMemberDef())
+    else if (tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__BYREF_ADD)->GetMemberDef() ||
+             tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__PTR_ADD)->GetMemberDef())
     {
         mdToken tokGenericArg = FindGenericMethodArgTypeSpec(MscorlibBinder::GetModule()->GetMDImport());
 
@@ -6919,6 +7194,23 @@ bool getILIntrinsicImplementationForUnsafe(MethodDesc * ftn,
         methInfo->ILCode = const_cast<BYTE*>(ilcode);
         methInfo->ILCodeSize = sizeof(ilcode);
         methInfo->maxStack = 3;
+        methInfo->EHcount = 0;
+        methInfo->options = (CorInfoOptions)0;
+        return true;
+    }
+    else if (tk == MscorlibBinder::GetMethod(METHOD__UNSAFE__BYREF_BYTE_OFFSET)->GetMemberDef())
+    {
+        static const BYTE ilcode[] = 
+        {
+            CEE_LDARG_1,
+            CEE_LDARG_0,
+            CEE_SUB,
+            CEE_RET
+        };
+
+        methInfo->ILCode = const_cast<BYTE*>(ilcode);
+        methInfo->ILCodeSize = sizeof(ilcode);
+        methInfo->maxStack = 2;
         methInfo->EHcount = 0;
         methInfo->options = (CorInfoOptions)0;
         return true;
@@ -7190,31 +7482,41 @@ getMethodInfoHelper(
         bool fILIntrinsic = false;
 
         MethodTable * pMT  = ftn->GetMethodTable();
-      
-        if (MscorlibBinder::IsClass(pMT, CLASS__JIT_HELPERS))
+
+        if (pMT->GetModule()->IsSystem())
         {
-            fILIntrinsic = getILIntrinsicImplementation(ftn, methInfo);
-        }
-        else if (MscorlibBinder::IsClass(pMT, CLASS__UNSAFE))
-        {
-            fILIntrinsic = getILIntrinsicImplementationForUnsafe(ftn, methInfo);
-        }
-        else if (MscorlibBinder::IsClass(pMT, CLASS__INTERLOCKED))
-        {
-            fILIntrinsic = getILIntrinsicImplementationForInterlocked(ftn, methInfo);
-        }
-        else if (MscorlibBinder::IsClass(pMT, CLASS__VOLATILE))
-        {
-            fILIntrinsic = getILIntrinsicImplementationForVolatile(ftn, methInfo);
-        }
-        else if (MscorlibBinder::IsClass(pMT, CLASS__RUNTIME_HELPERS))
-        {
-            fILIntrinsic = getILIntrinsicImplementationForRuntimeHelpers(ftn, methInfo);
+            if (MscorlibBinder::IsClass(pMT, CLASS__JIT_HELPERS))
+            {
+                fILIntrinsic = getILIntrinsicImplementation(ftn, methInfo);
+            }
+            else if (MscorlibBinder::IsClass(pMT, CLASS__UNSAFE))
+            {
+                fILIntrinsic = getILIntrinsicImplementationForUnsafe(ftn, methInfo);
+            }
+            else if (MscorlibBinder::IsClass(pMT, CLASS__INTERLOCKED))
+            {
+                fILIntrinsic = getILIntrinsicImplementationForInterlocked(ftn, methInfo);
+            }
+            else if (MscorlibBinder::IsClass(pMT, CLASS__VOLATILE))
+            {
+                fILIntrinsic = getILIntrinsicImplementationForVolatile(ftn, methInfo);
+            }
+            else if (MscorlibBinder::IsClass(pMT, CLASS__RUNTIME_HELPERS))
+            {
+                fILIntrinsic = getILIntrinsicImplementationForRuntimeHelpers(ftn, methInfo);
+            }
         }
 
         if (!fILIntrinsic)
         {
             getMethodInfoILMethodHeaderHelper(header, methInfo);
+
+            // Workaround for https://github.com/dotnet/coreclr/issues/1279
+            // Set init locals bit to zero for system module unless profiler may have overrided it. Remove once we have
+            // better solution for this issue.
+            if (pMT->GetModule()->IsSystem() && !(CORProfilerDisableAllNGenImages() || CORProfilerUseProfileImages()))
+                methInfo->options = (CorInfoOptions)0;
+
             pLocalSig = header->LocalVarSig;
             cbLocalSig = header->cbLocalVarSig;
         }
@@ -8633,12 +8935,158 @@ CORINFO_METHOD_HANDLE CEEInfo::resolveVirtualMethod(CORINFO_METHOD_HANDLE method
     return result;
 }
 
+/*********************************************************************/
+CORINFO_METHOD_HANDLE CEEInfo::getUnboxedEntry(
+    CORINFO_METHOD_HANDLE ftn,
+    bool* requiresInstMethodTableArg)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    CORINFO_METHOD_HANDLE result = NULL;
+
+    JIT_TO_EE_TRANSITION();
+
+    MethodDesc* pMD = GetMethod(ftn);
+    bool requiresInstMTArg = false;
+
+    if (pMD->IsUnboxingStub())
+    {
+        MethodTable* pMT = pMD->GetMethodTable();
+        MethodDesc* pUnboxedMD = pMT->GetUnboxedEntryPointMD(pMD);
+
+        result = (CORINFO_METHOD_HANDLE)pUnboxedMD;
+        requiresInstMTArg = !!pUnboxedMD->RequiresInstMethodTableArg();
+    }
+
+    if (requiresInstMethodTableArg != NULL)
+    {
+        *requiresInstMethodTableArg = requiresInstMTArg;
+    }
+
+    EE_TO_JIT_TRANSITION();
+
+    return result;
+}
+
+/*********************************************************************/
 void CEEInfo::expandRawHandleIntrinsic(
     CORINFO_RESOLVED_TOKEN *        pResolvedToken,
     CORINFO_GENERICHANDLE_RESULT *  pResult)
 {
     LIMITED_METHOD_CONTRACT;
     UNREACHABLE();      // only called with CoreRT.
+}
+
+/*********************************************************************/
+CORINFO_CLASS_HANDLE CEEInfo::getDefaultEqualityComparerClass(CORINFO_CLASS_HANDLE elemType)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    CORINFO_CLASS_HANDLE result = NULL;
+
+    JIT_TO_EE_TRANSITION();
+
+    result = getDefaultEqualityComparerClassHelper(elemType);
+
+    EE_TO_JIT_TRANSITION();
+
+    return result;
+}
+
+CORINFO_CLASS_HANDLE CEEInfo::getDefaultEqualityComparerClassHelper(CORINFO_CLASS_HANDLE elemType)
+{
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    // Mirrors the logic in BCL's CompareHelpers.CreateDefaultEqualityComparer
+    // And in compile.cpp's SpecializeEqualityComparer
+    TypeHandle elemTypeHnd(elemType);
+
+    // Special case for byte
+    if (elemTypeHnd.AsMethodTable()->HasSameTypeDefAs(MscorlibBinder::GetClass(CLASS__ELEMENT_TYPE_U1)))
+    {
+        return CORINFO_CLASS_HANDLE(MscorlibBinder::GetClass(CLASS__BYTE_EQUALITYCOMPARER));
+    }
+
+    // Else we'll need to find the appropriate instantation
+    Instantiation inst(&elemTypeHnd, 1);
+
+    // If T implements IEquatable<T>
+    if (elemTypeHnd.CanCastTo(TypeHandle(MscorlibBinder::GetClass(CLASS__IEQUATABLEGENERIC)).Instantiate(inst)))
+    {
+        TypeHandle resultTh = ((TypeHandle)MscorlibBinder::GetClass(CLASS__GENERIC_EQUALITYCOMPARER)).Instantiate(inst);
+        return CORINFO_CLASS_HANDLE(resultTh.GetMethodTable());
+    }
+
+    // Nullable<T>
+    if (Nullable::IsNullableType(elemTypeHnd))
+    {
+        Instantiation nullableInst = elemTypeHnd.AsMethodTable()->GetInstantiation();
+        TypeHandle nullableComparer = TypeHandle(MscorlibBinder::GetClass(CLASS__IEQUATABLEGENERIC)).Instantiate(nullableInst);
+        if (nullableInst[0].CanCastTo(nullableComparer))
+        {
+            return CORINFO_CLASS_HANDLE(nullableComparer.GetMethodTable());
+        }
+    }
+
+    // Enum
+    //
+    // We need to special case the Enum comparers based on their underlying type,
+    // to avoid boxing and call the correct versions of GetHashCode.
+    if (elemTypeHnd.IsEnum())
+    {
+        MethodTable* targetClass = NULL;
+        CorElementType normType = elemTypeHnd.GetVerifierCorElementType();
+
+        switch(normType)
+        {
+            case ELEMENT_TYPE_I1:
+            case ELEMENT_TYPE_I2:
+            case ELEMENT_TYPE_U1:
+            case ELEMENT_TYPE_U2:
+            case ELEMENT_TYPE_I4:
+            case ELEMENT_TYPE_U4:
+            {
+                targetClass = MscorlibBinder::GetClass(CLASS__ENUM_EQUALITYCOMPARER);
+                break;
+            }
+
+            case ELEMENT_TYPE_I8:
+            case ELEMENT_TYPE_U8:
+            {
+                targetClass = MscorlibBinder::GetClass(CLASS__LONG_ENUM_EQUALITYCOMPARER);
+                break;
+            }
+
+            default:
+                break;
+        }
+
+        if (targetClass != NULL)
+        {
+            TypeHandle resultTh = ((TypeHandle)targetClass->GetCanonicalMethodTable()).Instantiate(inst);
+            return CORINFO_CLASS_HANDLE(resultTh.GetMethodTable());
+        }
+    }
+
+    // Default case
+    TypeHandle resultTh = ((TypeHandle)MscorlibBinder::GetClass(CLASS__OBJECT_EQUALITYCOMPARER)).Instantiate(inst);
+
+    return CORINFO_CLASS_HANDLE(resultTh.GetMethodTable());
 }
 
 /*********************************************************************/
@@ -9259,7 +9707,6 @@ CorInfoType CEEInfo::getHFAType(CORINFO_CLASS_HANDLE hClass)
 
     CorInfoType result = CORINFO_TYPE_UNDEF;
 
-#ifdef FEATURE_HFA
     JIT_TO_EE_TRANSITION();
 
     TypeHandle VMClsHnd(hClass);
@@ -9267,7 +9714,6 @@ CorInfoType CEEInfo::getHFAType(CORINFO_CLASS_HANDLE hClass)
     result = asCorInfoType(VMClsHnd.GetHFAType());
     
     EE_TO_JIT_TRANSITION();
-#endif
 
     return result;
 }
@@ -9705,19 +10151,6 @@ DWORD CEEInfo::getThreadTLSIndex(void **ppIndirection)
 
     if (ppIndirection != NULL)
         *ppIndirection = NULL;
-
-    JIT_TO_EE_TRANSITION();
-
-#if !defined(CROSSGEN_COMPILE) && !defined(FEATURE_IMPLICIT_TLS)
-    result = GetThreadTLSIndex();
-
-    // The JIT can use the optimized TLS access only if the runtime is using it as well.
-    //  (This is necessaryto make managed code work well under appverifier.)
-    if (GetTLSAccessMode(result) == TLSACCESS_GENERIC)
-        result = (DWORD)-1;
-#endif
-
-    EE_TO_JIT_TRANSITION();
 
     return result;
 }
@@ -10948,7 +11381,17 @@ void CEEJitInfo::recordRelocation(void * location,
                     // When m_fAllowRel32 == FALSE, the JIT will use a REL32s for direct code targets only.
                     // Use jump stub.
                     // 
-                    delta = rel32UsingJumpStub(fixupLocation, (PCODE)target, m_pMethodBeingCompiled);
+                    delta = rel32UsingJumpStub(fixupLocation, (PCODE)target, m_pMethodBeingCompiled, NULL, false /* throwOnOutOfMemoryWithinRange */);
+                    if (delta == 0)
+                    {
+                        // This forces the JIT to retry the method, which allows us to reserve more space for jump stubs and have a higher chance that
+                        // we will find space for them.
+                        m_fRel32Overflow = TRUE;
+                    }
+
+                    // Keep track of conservative estimate of how much memory may be needed by jump stubs. We will use it to reserve extra memory 
+                    // on retry to increase chances that the retry succeeds.
+                    m_reserveForJumpStubs = max(0x400, m_reserveForJumpStubs + 0x10);
                 }
             }
 
@@ -11413,7 +11856,7 @@ void CEEJitInfo::allocMem (
         COMPlusThrowHR(CORJIT_OUTOFMEM);
     }
 
-    m_CodeHeader = m_jitManager->allocCode(m_pMethodBeingCompiled, totalSize.Value(), flag
+    m_CodeHeader = m_jitManager->allocCode(m_pMethodBeingCompiled, totalSize.Value(), GetReserveForJumpStubs(), flag
 #ifdef WIN64EXCEPTIONS
                                            , m_totalUnwindInfos
                                            , &m_moduleBase
@@ -11867,24 +12310,11 @@ CorJitResult CallCompileMethodWithSEHWrapper(EEJitManager *jitMgr,
             //
             // Notify the debugger that we have successfully jitted the function
             //
-            if (ftn->HasNativeCode())
+            if (g_pDebugInterface)
             {
-                //
-                // Nothing to do here (don't need to notify the debugger
-                // because the function has already been successfully jitted)
-                //
-                // This is the case where we aborted the jit because of a deadlock cycle
-                // in initClass.  
-                //
-            }
-            else
-            {
-                if (g_pDebugInterface)
+                if (param.res == CORJIT_OK && !((CEEJitInfo*)param.comp)->JitAgain())
                 {
-                    if (param.res == CORJIT_OK && !((CEEJitInfo*)param.comp)->JitAgain())
-                    {
-                        g_pDebugInterface->JITComplete(ftn, (TADDR) *nativeEntry);
-                    }
+                    g_pDebugInterface->JITComplete(ftn, (TADDR)*nativeEntry);
                 }
             }
         }
@@ -12262,6 +12692,7 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
 #endif
 
     BOOL fAllowRel32 = g_fAllowRel32 | fForceRel32Overflow;
+    size_t reserveForJumpStubs = 0;
 
     // For determinism, never try to use the REL32 in compilation process
     if (IsCompilationProcess())
@@ -12287,6 +12718,7 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
         if (fForceRel32Overflow)
             jitInfo.SetRel32Overflow(fAllowRel32);
         jitInfo.SetAllowRel32(fAllowRel32);
+        jitInfo.SetReserveForJumpStubs(reserveForJumpStubs);
 #endif
 
         MethodDesc * pMethodForSecurity = jitInfo.GetMethodForSecurity(ftnHnd);
@@ -12443,8 +12875,9 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
             // Disallow rel32 relocs in future.
             g_fAllowRel32 = FALSE;
 
-            _ASSERTE(fAllowRel32 != FALSE);
             fAllowRel32 = FALSE;
+
+            reserveForJumpStubs = jitInfo.GetReserveForJumpStubs();
             continue;
         }
 #endif // _TARGET_AMD64_ && !CROSSGEN_COMPILE

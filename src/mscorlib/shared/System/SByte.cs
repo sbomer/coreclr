@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -13,7 +12,7 @@ namespace System
     [Serializable]
     [CLSCompliant(false)]    [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct SByte : IComparable, IConvertible, IFormattable, IComparable<SByte>, IEquatable<SByte>
+    public struct SByte : IComparable, IConvertible, IFormattable, IComparable<SByte>, IEquatable<SByte>, ISpanFormattable
     {
         private sbyte m_value; // Do not rename (binary serialization)
 
@@ -74,57 +73,59 @@ namespace System
         // Provides a string representation of a byte.
         public override String ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, null, NumberFormatInfo.CurrentInfo);
+            return Number.FormatInt32(m_value, null, null);
         }
 
         public String ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatInt32(m_value, null, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatInt32(m_value, null, provider);
         }
 
         public String ToString(String format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return ToString(format, NumberFormatInfo.CurrentInfo);
+            return ToString(format, null);
         }
 
         public String ToString(String format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return ToString(format, NumberFormatInfo.GetInstance(provider));
-        }
-
-        private String ToString(String format, NumberFormatInfo info)
-        {
-            Contract.Ensures(Contract.Result<String>() != null);
-
             if (m_value < 0 && format != null && format.Length > 0 && (format[0] == 'X' || format[0] == 'x'))
             {
                 uint temp = (uint)(m_value & 0x000000FF);
-                return Number.FormatUInt32(temp, format, info);
+                return Number.FormatUInt32(temp, format, provider);
             }
-            return Number.FormatInt32(m_value, format, info);
+            return Number.FormatInt32(m_value, format, provider);
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            if (m_value < 0 && format.Length > 0 && (format[0] == 'X' || format[0] == 'x'))
+            {
+                uint temp = (uint)(m_value & 0x000000FF);
+                return Number.TryFormatUInt32(temp, format, provider, destination, out charsWritten);
+            }
+            return Number.TryFormatInt32(m_value, format, provider, destination, out charsWritten);
         }
 
         [CLSCompliant(false)]
         public static sbyte Parse(String s)
         {
-            return Parse(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
         }
 
         [CLSCompliant(false)]
         public static sbyte Parse(String s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
-            return Parse(s, style, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.CurrentInfo);
         }
 
         [CLSCompliant(false)]
         public static sbyte Parse(String s, IFormatProvider provider)
         {
-            return Parse(s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
         }
 
         // Parses a signed byte from a String in the given style.  If
@@ -135,10 +136,24 @@ namespace System
         public static sbyte Parse(String s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider));
+        }
+
+        [CLSCompliant(false)]
+        public static sbyte Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
+        {
+            NumberFormatInfo.ValidateParseStyleInteger(style);
             return Parse(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
         private static sbyte Parse(String s, NumberStyles style, NumberFormatInfo info)
+        {
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, style, info);
+        }
+
+        private static sbyte Parse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info)
         {
             int i = 0;
             try
@@ -166,6 +181,18 @@ namespace System
         [CLSCompliant(false)]
         public static bool TryParse(String s, out SByte result)
         {
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        [CLSCompliant(false)]
+        public static bool TryParse(ReadOnlySpan<char> s, out sbyte result)
+        {
             return TryParse(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
         }
 
@@ -173,10 +200,24 @@ namespace System
         public static bool TryParse(String s, NumberStyles style, IFormatProvider provider, out SByte result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
+
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        [CLSCompliant(false)]
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out sbyte result)
+        {
+            NumberFormatInfo.ValidateParseStyleInteger(style);
             return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
-        private static bool TryParse(String s, NumberStyles style, NumberFormatInfo info, out SByte result)
+        private static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out SByte result)
         {
             result = 0;
             int i;

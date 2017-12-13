@@ -2,16 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-/*============================================================
-**
-**
-** Purpose: This class will encapsulate a short and provide an
-**          Object representation of it.
-**
-** 
-===========================================================*/
-
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -23,7 +13,7 @@ namespace System
     [CLSCompliant(false)]
     [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct UInt16 : IComparable, IConvertible, IFormattable, IComparable<UInt16>, IEquatable<UInt16>
+    public struct UInt16 : IComparable, IConvertible, IFormattable, IComparable<UInt16>, IEquatable<UInt16>, ISpanFormattable
     {
         private ushort m_value; // Do not rename (binary serialization)
 
@@ -79,57 +69,69 @@ namespace System
         // Converts the current value to a String in base-10 with no extra padding.
         public override String ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt32(m_value, null, NumberFormatInfo.CurrentInfo);
+            return Number.FormatUInt32(m_value, null, null);
         }
 
         public String ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt32(m_value, null, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatUInt32(m_value, null, provider);
         }
 
 
         public String ToString(String format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt32(m_value, format, NumberFormatInfo.CurrentInfo);
+            return Number.FormatUInt32(m_value, format, null);
         }
 
         public String ToString(String format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
-            return Number.FormatUInt32(m_value, format, NumberFormatInfo.GetInstance(provider));
+            return Number.FormatUInt32(m_value, format, provider);
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            return Number.TryFormatUInt32(m_value, format, provider, destination, out charsWritten);
         }
 
         [CLSCompliant(false)]
         public static ushort Parse(String s)
         {
-            return Parse(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo);
         }
 
         [CLSCompliant(false)]
         public static ushort Parse(String s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
-            return Parse(s, style, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.CurrentInfo);
         }
 
 
         [CLSCompliant(false)]
         public static ushort Parse(String s, IFormatProvider provider)
         {
-            return Parse(s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.GetInstance(provider));
         }
 
         [CLSCompliant(false)]
         public static ushort Parse(String s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Parse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider));
+        }
+
+        [CLSCompliant(false)]
+        public static ushort Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
+        {
+            NumberFormatInfo.ValidateParseStyleInteger(style);
             return Parse(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
-        private static ushort Parse(String s, NumberStyles style, NumberFormatInfo info)
+        private static ushort Parse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info)
         {
             uint i = 0;
             try
@@ -148,6 +150,18 @@ namespace System
         [CLSCompliant(false)]
         public static bool TryParse(String s, out UInt16 result)
         {
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        [CLSCompliant(false)]
+        public static bool TryParse(ReadOnlySpan<char> s, out ushort result)
+        {
             return TryParse(s, NumberStyles.Integer, NumberFormatInfo.CurrentInfo, out result);
         }
 
@@ -155,10 +169,24 @@ namespace System
         public static bool TryParse(String s, NumberStyles style, IFormatProvider provider, out UInt16 result)
         {
             NumberFormatInfo.ValidateParseStyleInteger(style);
+
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        [CLSCompliant(false)]
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out ushort result)
+        {
+            NumberFormatInfo.ValidateParseStyleInteger(style);
             return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
-        private static bool TryParse(String s, NumberStyles style, NumberFormatInfo info, out UInt16 result)
+        private static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out UInt16 result)
         {
             result = 0;
             UInt32 i;

@@ -10,10 +10,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include "config.h"
-
-#ifndef __out_z
-#define __out_z
-#endif // __out_z
+#include "common.h"
 
 #include "gcenv.structs.h"
 #include "gcenv.base.h"

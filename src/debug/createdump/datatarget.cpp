@@ -52,12 +52,6 @@ DumpDataTarget::QueryInterface(
         AddRef();
         return S_OK;
     }
-    else if (InterfaceId == IID_ICorDebugDataTarget4)
-    {
-        *Interface = (ICorDebugDataTarget4*)this;
-        AddRef();
-        return S_OK;
-    }
     else
     {
         *Interface = NULL;
@@ -249,14 +243,5 @@ DumpDataTarget::Request(
     /* [size_is][out] */ BYTE *outBuffer)
 {
     assert(false);
-    return E_NOTIMPL;
-}
-
-HRESULT STDMETHODCALLTYPE 
-DumpDataTarget::VirtualUnwind(
-    /* [in] */ DWORD threadId,
-    /* [in] */ ULONG32 contextSize,
-    /* [in, out, size_is(contextSize)] */ PBYTE context)
-{
     return E_NOTIMPL;
 }

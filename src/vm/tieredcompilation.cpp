@@ -24,38 +24,32 @@
 //
 // This feature is incomplete and currently experimental. To enable it
 // you need to set COMPLUS_EXPERIMENTAL_TieredCompilation = 1. When the environment
-// variable is unset the runtime should work as normal, but when it is set there are 
-// anticipated incompatibilities and limited cross cutting test coverage so far.
-//   Profiler - Anticipated incompatible with ReJIT, untested in general
-//   ETW - Anticipated incompatible with the ReJIT id of the MethodJitted rundown events
-//   Managed debugging - Anticipated incompatible with breakpoints/stepping that are
-//                       active when a method is recompiled.
+// variable is unset the runtime should work as normal, but when it is there are a few
+// known issues
+//   ETW - Native to IL maps aren't correctly emitted (probably tier1 wrong, tier0 right)
+//   Profiler - Still missing APIs that allow profilers to correctly get native to IL
+//              maps for all code bodies.
+//
+//  Diagnostic tools have minimal testing that we are aware of and its possible they
+//  made additional assumptions about runtime implementation that have been invalidated
+//  by this feature. VS debugging does appear to work at a basic level at least.
 //   
-//
-// Testing that has been done so far largely consists of regression testing with
-// the environment variable off + functional/perf testing of the Music Store ASP.Net
-// workload as a basic example that the feature can work. Running the coreclr repo
-// tests with the env var on generates about a dozen failures in JIT tests. The issues
-// are likely related to assertions about optimization behavior but haven't been
-// properly investigated yet.
-//
-// If you decide to try this out on a new workload and run into trouble a quick note
-// on github is appreciated but this code may have high churn for a while to come and
-// there will be no sense investing a lot of time investigating only to have it rendered 
-// moot by changes. I aim to keep this comment updated as things change.
+//  I aim to keep this comment updated as things change.
 //
 //
 // # Important entrypoints in this code:
 //
 // 
-// a) .ctor and Init(...) - called once during AppDomain initialization
-// b) OnMethodCalled(...) - called when a method is being invoked. When a method
-//                     has been called enough times this is currently the only
-//                     trigger that initiates re-compilation.
-// c) OnAppDomainShutdown() - called during AppDomain::Exit() to begin the process
-//                     of stopping tiered compilation. After this point no more
-//                     background optimization work will be initiated but in-progress
-//                     work still needs to complete.
+// a) .ctor and Init(...) -  called once during AppDomain initialization
+// b) OnMethodCalled(...) -  called when a method is being invoked. When a method
+//                           has been called enough times this is currently the only
+//                           trigger that initiates re-compilation.
+// c) Shutdown() -           called during AppDomain::Exit() to begin the process
+//                           of stopping tiered compilation. After this point no more
+//                           background optimization work will be initiated but in-progress
+//                           work still needs to complete.
+// d) ShutdownAllDomains() - Called from EEShutdownHelper to block until all async work is
+//                           complete. We must do this before we shutdown the JIT.
 //
 // # Overall workflow
 //
@@ -108,6 +102,7 @@ void TieredCompilationManager::Init(ADID appDomainId)
 
     SpinLockHolder holder(&m_lock);
     m_domainId = appDomainId;
+    m_asyncWorkDoneEvent.CreateManualEventNoThrow(TRUE);
 }
 
 // Called each time code in this AppDomain has been run. This is our sole entrypoint to begin
@@ -153,14 +148,20 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
             if (cur->GetOptimizationTier() == NativeCodeVersion::OptimizationTier1)
             {
                 // we've already promoted
+                LOG((LF_TIEREDCOMPILATION, LL_INFO100000, "TieredCompilationManager::AsyncPromoteMethodToTier1 Method=0x%pM (%s::%s) ignoring already promoted method\n",
+                    pMethodDesc, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName));
                 return;
             }
         }
 
-        if (FAILED(ilVersion.AddNativeCodeVersion(pMethodDesc, &t1NativeCodeVersion)))
+        HRESULT hr = S_OK;
+        if (FAILED(hr = ilVersion.AddNativeCodeVersion(pMethodDesc, &t1NativeCodeVersion)))
         {
             // optimization didn't work for some reason (presumably OOM)
             // just give up and continue on
+            STRESS_LOG2(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::AsyncPromoteMethodToTier1: "
+                "AddNativeCodeVersion failed hr=0x%x, method=%pM\n",
+                hr, pMethodDesc);
             return;
         }
         t1NativeCodeVersion.SetOptimizationTier(NativeCodeVersion::OptimizationTier1);
@@ -186,11 +187,15 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
             m_methodsToOptimize.InsertTail(pMethodListItem);
         }
 
+        LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::AsyncPromoteMethodToTier1 Method=0x%pM (%s::%s), code version id=0x%x queued\n",
+            pMethodDesc, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName,
+            t1NativeCodeVersion.GetVersionId()));
+
         if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown)
         {
             // Our current policy throttles at 1 thread, but in the future we
             // could experiment with more parallelism.
-            m_countOptimizationThreadsRunning++;
+            IncrementWorkerThreadCount();
         }
         else
         {
@@ -203,7 +208,7 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
         if (!ThreadpoolMgr::QueueUserWorkItem(StaticOptimizeMethodsCallback, this, QUEUE_ONLY, TRUE))
         {
             SpinLockHolder holder(&m_lock);
-            m_countOptimizationThreadsRunning--;
+            DecrementWorkerThreadCount();
             STRESS_LOG1(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
                 "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run), method=%pM\n",
                 pMethodDesc);
@@ -212,7 +217,7 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
     EX_CATCH
     {
         SpinLockHolder holder(&m_lock);
-        m_countOptimizationThreadsRunning--;
+        DecrementWorkerThreadCount();
         STRESS_LOG2(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
             "Exception queuing work item to threadpool, hr=0x%x, method=%pM\n",
             GET_EXCEPTION()->GetHR(), pMethodDesc);
@@ -222,19 +227,35 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
     return;
 }
 
-void TieredCompilationManager::OnAppDomainShutdown()
+// static
+// called from EEShutDownHelper
+void TieredCompilationManager::ShutdownAllDomains()
 {
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        CAN_TAKE_LOCK;
-    }
-    CONTRACTL_END
+    STANDARD_VM_CONTRACT;
 
-    SpinLockHolder holder(&m_lock);
-    m_isAppDomainShuttingDown = TRUE;
+    AppDomainIterator domain(TRUE);
+    while (domain.Next())
+    {
+        AppDomain * pDomain = domain.GetDomain();
+        if (pDomain != NULL)
+        {
+            pDomain->GetTieredCompilationManager()->Shutdown(TRUE);
+        }
+    }
+}
+
+void TieredCompilationManager::Shutdown(BOOL fBlockUntilAsyncWorkIsComplete)
+{
+    STANDARD_VM_CONTRACT;
+
+    {
+        SpinLockHolder holder(&m_lock);
+        m_isAppDomainShuttingDown = TRUE;
+    }
+    if (fBlockUntilAsyncWorkIsComplete)
+    {
+        m_asyncWorkDoneEvent.Wait(INFINITE, FALSE);
+    }
 }
 
 // This is the initial entrypoint for the background thread, called by
@@ -268,7 +289,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
         SpinLockHolder holder(&m_lock);
         if (m_isAppDomainShuttingDown)
         {
-            m_countOptimizationThreadsRunning--;
+            DecrementWorkerThreadCount();
             return;
         }
     }
@@ -289,7 +310,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
                     if (nativeCodeVersion.IsNull() ||
                         m_isAppDomainShuttingDown)
                     {
-                        m_countOptimizationThreadsRunning--;
+                        DecrementWorkerThreadCount();
                         break;
                     }
                     
@@ -305,7 +326,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
                     if (!ThreadpoolMgr::QueueUserWorkItem(StaticOptimizeMethodsCallback, this, QUEUE_ONLY, TRUE))
                     {
                         SpinLockHolder holder(&m_lock);
-                        m_countOptimizationThreadsRunning--;
+                        DecrementWorkerThreadCount();
                         STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OptimizeMethodsCallback: "
                             "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run)\n");
                     }
@@ -348,11 +369,15 @@ BOOL TieredCompilationManager::CompileCodeVersion(NativeCodeVersion nativeCodeVe
     EX_TRY
     {
         pCode = pMethod->PrepareCode(nativeCodeVersion);
+        LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::CompileCodeVersion Method=0x%pM (%s::%s), code version id=0x%x, code ptr=0x%p\n",
+            pMethod, pMethod->m_pszDebugClassName, pMethod->m_pszDebugMethodName,
+            nativeCodeVersion.GetVersionId(),
+            pCode));
     }
     EX_CATCH
     {
         // Failing to jit should be rare but acceptable. We will leave whatever code already exists in place.
-        STRESS_LOG2(LF_TIEREDCOMPILATION, LL_INFO10, "TieredCompilationManager::CompileMethod: Method %pM failed to jit, hr=0x%x\n", 
+        STRESS_LOG2(LF_TIEREDCOMPILATION, LL_INFO10, "TieredCompilationManager::CompileCodeVersion: Method %pM failed to jit, hr=0x%x\n", 
             pMethod, GET_EXCEPTION()->GetHR());
     }
     EX_END_CATCH(RethrowTerminalExceptions)
@@ -381,6 +406,10 @@ void TieredCompilationManager::ActivateCodeVersion(NativeCodeVersion nativeCodeV
         CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
         ilParent = nativeCodeVersion.GetILCodeVersion();
         hr = ilParent.SetActiveNativeCodeVersion(nativeCodeVersion, FALSE);
+        LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::ActivateCodeVersion Method=0x%pM (%s::%s), code version id=0x%x. SetActiveNativeCodeVersion ret=0x%x\n",
+            pMethod, pMethod->m_pszDebugClassName, pMethod->m_pszDebugMethodName,
+            nativeCodeVersion.GetVersionId(),
+            hr));
     }
     if (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED)
     {
@@ -394,6 +423,10 @@ void TieredCompilationManager::ActivateCodeVersion(NativeCodeVersion nativeCodeV
         {
             CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
             hr = ilParent.SetActiveNativeCodeVersion(nativeCodeVersion, TRUE);
+            LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::ActivateCodeVersion Method=0x%pM (%s::%s), code version id=0x%x. [Suspended] SetActiveNativeCodeVersion ret=0x%x\n",
+                pMethod, pMethod->m_pszDebugClassName, pMethod->m_pszDebugMethodName,
+                nativeCodeVersion.GetVersionId(),
+                hr));
         }
         ThreadSuspend::RestartEE(FALSE, TRUE);
     }
@@ -419,6 +452,27 @@ NativeCodeVersion TieredCompilationManager::GetNextMethodToOptimize()
         return nativeCodeVersion;
     }
     return NativeCodeVersion();
+}
+
+void TieredCompilationManager::IncrementWorkerThreadCount()
+{
+    STANDARD_VM_CONTRACT;
+    //m_lock should be held
+
+    m_countOptimizationThreadsRunning++;
+    m_asyncWorkDoneEvent.Reset();
+}
+
+void TieredCompilationManager::DecrementWorkerThreadCount()
+{
+    STANDARD_VM_CONTRACT;
+    //m_lock should be held
+    
+    m_countOptimizationThreadsRunning--;
+    if (m_countOptimizationThreadsRunning == 0)
+    {
+        m_asyncWorkDoneEvent.Set();
+    }
 }
 
 //static

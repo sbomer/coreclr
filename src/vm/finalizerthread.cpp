@@ -744,6 +744,8 @@ DWORD WINAPI FinalizerThread::FinalizerThreadStart(void *args)
 #endif
             GetFinalizerThread()->SetBackground(TRUE);
 
+            EnsureYieldProcessorNormalizedInitialized();
+
 #ifdef FEATURE_PROFAPI_ATTACH_DETACH 
             // Add the Profiler Attach Event to the array of event handles that the
             // finalizer thread waits on. If the process is not enabled for profiler
@@ -909,7 +911,7 @@ void FinalizerThread::FinalizerThreadCreate()
     // actual thread terminates.
     GetFinalizerThread()->IncExternalCount();
 
-    if (GetFinalizerThread()->CreateNewThread(0, &FinalizerThreadStart, NULL))
+    if (GetFinalizerThread()->CreateNewThread(0, &FinalizerThreadStart, NULL, W("Finalizer")) )
     {
         DWORD dwRet = GetFinalizerThread()->StartThread();
 

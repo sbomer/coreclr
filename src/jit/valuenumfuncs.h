@@ -126,6 +126,7 @@ ValueNumFuncDef(JitNew, 2, false, true, false)
 ValueNumFuncDef(JitNewArr, 3, false, true, false)
 ValueNumFuncDef(JitReadyToRunNew, 2, false, true, false)
 ValueNumFuncDef(JitReadyToRunNewArr, 3, false, true, false)
+ValueNumFuncDef(Box, 3, false, false, false)
 ValueNumFuncDef(BoxNullable, 3, false, false, false)
 
 ValueNumFuncDef(LT_UN, 2, false, false, false)
@@ -135,8 +136,6 @@ ValueNumFuncDef(GT_UN, 2, false, false, false)
 ValueNumFuncDef(ADD_UN, 2, true, false, false)
 ValueNumFuncDef(SUB_UN, 2, false, false, false)
 ValueNumFuncDef(MUL_UN, 2, true, false, false)
-ValueNumFuncDef(DIV_UN, 2, false, false, false)
-ValueNumFuncDef(MOD_UN, 2, false, false, false)
 
 ValueNumFuncDef(StrCns, 2, false, true, false)
 

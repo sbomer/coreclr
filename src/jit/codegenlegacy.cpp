@@ -4872,11 +4872,11 @@ void CodeGen::genStressRegs(GenTreePtr tree)
 void CodeGen::genCodeForTreeConst(GenTreePtr tree, regMaskTP destReg, regMaskTP bestReg)
 {
     noway_assert(tree->IsCnsIntOrI());
-
-    ssize_t   ival    = tree->gtIntConCommon.IconValue();
-    regMaskTP needReg = destReg;
-    regNumber reg;
-    bool      needReloc = compiler->opts.compReloc && tree->IsIconHandle();
+    GenTreeIntConCommon* con       = tree->AsIntConCommon();
+    ssize_t              ival      = con->IconValue();
+    bool                 needReloc = con->ImmedValNeedsReloc(compiler);
+    regMaskTP            needReg   = destReg;
+    regNumber            reg;
 
 #if REDUNDANT_LOAD
 
@@ -5137,7 +5137,7 @@ GenTreePtr CodeGen::genCodeForCommaTree(GenTreePtr tree)
     while (tree->OperGet() == GT_COMMA)
     {
         GenTreePtr op1 = tree->gtOp.gtOp1;
-        genCodeForTree(op1, RBM_NONE);
+        genEvalSideEffects(op1);
         gcInfo.gcMarkRegPtrVal(op1);
 
         tree = tree->gtOp.gtOp2;
@@ -6178,7 +6178,7 @@ bool CodeGen::genCodeForQmarkWithCMOV(GenTreePtr tree, regMaskTP destReg, regMas
                                            INS_cmove,  INS_cmovne, INS_cmovbe, INS_cmova,  INS_cmovs,  INS_cmovns,
                                            INS_cmovpe, INS_cmovpo, INS_cmovl,  INS_cmovge, INS_cmovle, INS_cmovg};
 
-    noway_assert((unsigned)jumpKind < (sizeof(EJtoCMOV) / sizeof(EJtoCMOV[0])));
+    noway_assert((unsigned)jumpKind < _countof(EJtoCMOV));
     instruction cmov_ins = EJtoCMOV[jumpKind];
 
     noway_assert(insIsCMOV(cmov_ins));
@@ -11603,8 +11603,10 @@ void CodeGen::genCodeForTreeSmpOpAsg(GenTreePtr tree)
 
         case GT_CNS_INT:
 
+            GenTreeIntConCommon* con;
+            con = op2->AsIntConCommon();
             ssize_t ival;
-            ival = op2->gtIntCon.gtIconVal;
+            ival = con->IconValue();
             emitAttr size;
             size = emitTypeSize(tree->TypeGet());
 
@@ -11660,7 +11662,7 @@ void CodeGen::genCodeForTreeSmpOpAsg(GenTreePtr tree)
             /* Move the value into the target */
 
             noway_assert(op1->gtOper != GT_REG_VAR);
-            if (compiler->opts.compReloc && op2->IsIconHandle())
+            if (con->ImmedValNeedsReloc(compiler))
             {
                 /* The constant is actually a handle that may need relocation
                    applied to it.  genComputeReg will do the right thing (see
@@ -16661,8 +16663,10 @@ size_t CodeGen::genPushArgList(GenTreeCall* call)
                     else
 #endif
                     {
-                        bool     needReloc = compiler->opts.compReloc && curr->IsIconHandle();
-                        emitAttr attr      = needReloc ? EA_HANDLE_CNS_RELOC : emitTypeSize(type);
+                        GenTreeIntConCommon* con       = curr->AsIntConCommon();
+                        bool                 needReloc = con->ImmedValNeedsReloc(compiler);
+                        emitAttr             attr      = needReloc ? EA_HANDLE_CNS_RELOC : emitTypeSize(type);
+
                         instGen_Store_Imm_Into_Lcl(type, attr, curr->gtIntCon.gtIconVal,
                                                    compiler->lvaOutgoingArgSpaceVar, argOffset);
                     }
@@ -18273,8 +18277,7 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
 #endif
 
 #ifdef _TARGET_ARM_
-    if (compiler->opts.ShouldUsePInvokeHelpers() && (call->gtFlags & GTF_CALL_UNMANAGED) &&
-        ((call->gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_NONVIRT))
+    if (compiler->opts.ShouldUsePInvokeHelpers() && (call->gtFlags & GTF_CALL_UNMANAGED) && !call->IsVirtual())
     {
         (void)genPInvokeCallProlog(nullptr, 0, (CORINFO_METHOD_HANDLE) nullptr, nullptr);
     }
@@ -18660,12 +18663,20 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
         firstTgtOffs = pInfo->offsetOfDelegateFirstTarget;
 
 #ifdef _TARGET_ARM_
+        // Ensure that we don't trash any of these registers if we have to load
+        // the helper call target into a register to invoke it.
+        regMaskTP regsUsed = 0;
+
         if ((call->gtCallMoreFlags & GTF_CALL_M_SECURE_DELEGATE_INV))
         {
-            getEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, compiler->virtualStubParamInfo->GetReg(), regThis,
+            getEmitter()->emitIns_R_R_I(INS_add, EA_BYREF, compiler->virtualStubParamInfo->GetReg(), regThis,
                                         pInfo->offsetOfSecureDelegateIndirectCell);
             regTracker.rsTrackRegTrash(compiler->virtualStubParamInfo->GetReg());
+
+            // Ensure that the virtual stub param info register doesn't get reused before the call is taken
+            regSet.rsLockReg(compiler->virtualStubParamInfo->GetRegMask(), &regsUsed);
         }
+
 #endif // _TARGET_ARM_
 
         // Grab an available register to use for the CALL indirection
@@ -18689,6 +18700,13 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
                                    INDEBUG_LDISASM_COMMA(sigInfo) NULL, // addr
                                    args, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
                                    gcInfo.gcRegByrefSetCur, ilOffset, indCallReg);
+
+#ifdef _TARGET_ARM_
+        if ((call->gtCallMoreFlags & GTF_CALL_M_SECURE_DELEGATE_INV))
+        {
+            regSet.rsUnlockReg(compiler->virtualStubParamInfo->GetRegMask(), regsUsed);
+        }
+#endif // _TARGET_ARM_
     }
     else
 
@@ -18830,15 +18848,24 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
                                                    (ssize_t)stubAddr);
                             // The stub will write-back to this register, so don't track it
                             regTracker.rsTrackRegTrash(compiler->virtualStubParamInfo->GetReg());
-                            getEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, REG_JUMP_THUNK_PARAM,
+                            regNumber indReg;
+                            if (compiler->IsTargetAbi(CORINFO_CORERT_ABI))
+                            {
+                                indReg = regSet.rsGrabReg(RBM_ALLINT & ~compiler->virtualStubParamInfo->GetRegMask());
+                            }
+                            else
+                            {
+                                indReg = REG_JUMP_THUNK_PARAM;
+                            }
+                            getEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indReg,
                                                         compiler->virtualStubParamInfo->GetReg(), 0);
-                            regTracker.rsTrackRegTrash(REG_JUMP_THUNK_PARAM);
+                            regTracker.rsTrackRegTrash(indReg);
                             callTypeStubAddr = emitter::EC_INDIR_R;
                             getEmitter()->emitIns_Call(emitter::EC_INDIR_R,
                                                        NULL,                                // methHnd
                                                        INDEBUG_LDISASM_COMMA(sigInfo) NULL, // addr
                                                        args, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                                       gcInfo.gcRegByrefSetCur, ilOffset, REG_JUMP_THUNK_PARAM);
+                                                       gcInfo.gcRegByrefSetCur, ilOffset, indReg);
 
 #else
                             // emit an indirect call
@@ -19209,6 +19236,10 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
                             emitCallType = emitter::EC_INDIR_ARD;
 
 #endif // CPU_LOAD_STORE_ARCH
+
+                            // For a indirect calls, we don't want to pass the address (used below),
+                            // so set it to nullptr. (We've already used the address to load up the target register.)
+                            addr = nullptr;
                         }
                     }
 
@@ -19547,6 +19578,7 @@ regMaskTP CodeGen::genCodeForCall(GenTreeCall* call, bool valUsed)
                             {
                                 noway_assert(regSet.rsRegMaskCanGrab() & RBM_R2R_INDIRECT_PARAM);
                                 getEmitter()->emitIns_R_R(INS_mov, EA_PTRSIZE, REG_R2R_INDIRECT_PARAM, indCallReg);
+                                regTracker.rsTrackRegTrash(REG_R2R_INDIRECT_PARAM);
                             }
 #endif // FEATURE_READYTORUN_COMPILER
 
@@ -20303,7 +20335,7 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 
 void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
-    IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) AllowZeroAllocator(compiler->getAllocatorGC());
+    IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
     GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
         GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
     assert(gcInfoEncoder);

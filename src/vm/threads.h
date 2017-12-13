@@ -305,7 +305,6 @@ public:
 
     enum ThreadState
     {
-        TS_YieldRequested         = 0x00000040,    // The task should yield
     };
 
     BOOL HasThreadState(ThreadState ts)
@@ -586,8 +585,6 @@ enum ThreadpoolThreadType
 //
 // Public functions for ASM code generators
 //
-//      int GetThreadTLSIndex()         - returns TLS index used to point to Thread
-//      int GetAppDomainTLSIndex()      - returns TLS index used to point to AppDomain
 //      Thread* __stdcall CreateThreadBlockThrow() - creates new Thread on reverse p-invoke
 //
 // Public functions for one-time init/cleanup
@@ -628,14 +625,6 @@ Thread* SetupThreadNoThrow(HRESULT *phresult = NULL);
 // WARNING : only GC calls this with bRequiresTSL set to FALSE.
 Thread* SetupUnstartedThread(BOOL bRequiresTSL=TRUE);
 void    DestroyThread(Thread *th);
-
-
-//---------------------------------------------------------------------------
-//---------------------------------------------------------------------------
-#ifndef FEATURE_IMPLICIT_TLS
-DWORD GetThreadTLSIndex();
-DWORD GetAppDomainTLSIndex();
-#endif
 
 DWORD GetRuntimeId();
 
@@ -1110,7 +1099,7 @@ public:
 
         TS_LegalToJoin            = 0x00000020,    // Is it now legal to attempt a Join()
 
-        TS_YieldRequested         = 0x00000040,    // The task should yield
+        // unused                 = 0x00000040,
 
 #ifdef FEATURE_HIJACK
         TS_Hijacked               = 0x00000080,    // Return address has been hijacked
@@ -1167,7 +1156,7 @@ public:
 
         // We require (and assert) that the following bits are less than 0x100.
         TS_CatchAtSafePoint = (TS_UserSuspendPending | TS_AbortRequested |
-                               TS_GCSuspendPending | TS_DebugSuspendPending | TS_GCOnTransitions | TS_YieldRequested),
+                               TS_GCSuspendPending | TS_DebugSuspendPending | TS_GCOnTransitions),
     };
 
     // Thread flags that aren't really states in themselves but rather things the thread
@@ -1946,7 +1935,7 @@ public:
     // Create all new threads here.  The thread is created as suspended, so
     // you must ::ResumeThread to kick it off.  It is guaranteed to create the
     // thread, or throw.
-    BOOL CreateNewThread(SIZE_T stackSize, LPTHREAD_START_ROUTINE start, void *args);
+    BOOL CreateNewThread(SIZE_T stackSize, LPTHREAD_START_ROUTINE start, void *args, LPCWSTR pName=NULL);
 
 
     enum StackSizeBucket
@@ -2976,12 +2965,6 @@ private:
     BOOL           ReadyForAsyncException();
 
 public:
-    inline BOOL IsYieldRequested()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return (m_State & TS_YieldRequested);
-    }
-
     void           UserInterrupt(ThreadInterruptMode mode);
 
     void           SetAbortRequest(EEPolicy::ThreadAbortTypes abortType);  // Should only be called by ADUnload
@@ -3530,7 +3513,6 @@ private:
     BOOL CheckForAndDoRedirectForDbg();
     BOOL CheckForAndDoRedirectForGC();
     BOOL CheckForAndDoRedirectForUserSuspend();
-    BOOL CheckForAndDoRedirectForYieldTask();
 
     // Exception handling must be very aware of redirection, so we provide a helper
     // to identifying redirection targets
@@ -3699,7 +3681,6 @@ private:
         RedirectReason_GCSuspension,
         RedirectReason_DebugSuspension,
         RedirectReason_UserSuspension,
-        RedirectReason_YieldTask,
 #if defined(HAVE_GCCOVER) && defined(USE_REDIRECT_FOR_GCSTRESS) // GCCOVER
         RedirectReason_GCStress,
 #endif // HAVE_GCCOVER && USE_REDIRECT_FOR_GCSTRESS
@@ -3708,7 +3689,6 @@ private:
     static void __stdcall RedirectedHandledJITCaseForDbgThreadControl();
     static void __stdcall RedirectedHandledJITCaseForGCThreadControl();
     static void __stdcall RedirectedHandledJITCaseForUserSuspend();
-    static void __stdcall RedirectedHandledJITCaseForYieldTask();
 #if defined(HAVE_GCCOVER) && defined(USE_REDIRECT_FOR_GCSTRESS) // GCCOVER
     static void __stdcall Thread::RedirectedHandledJITCaseForGCStress();
 #endif // defined(HAVE_GCCOVER) && USE_REDIRECT_FOR_GCSTRESS
@@ -3890,23 +3870,6 @@ private:
 
     ULONG  m_ulEnablePreemptiveGCCount;
 #endif  // _DEBUG
-
-#ifdef ENABLE_GET_THREAD_GENERIC_FULL_CHECK
-
-private:
-    // Set once on initialization, single-threaded, inside friend code:InitThreadManager,
-    // based on whether the user has set COMPlus_EnforceEEThreadNotRequiredContracts.
-    // This is then later accessed via public
-    // code:Thread::ShouldEnforceEEThreadNotRequiredContracts. See
-    // code:GetThreadGenericFullCheck for details.
-    static BOOL s_fEnforceEEThreadNotRequiredContracts;
-
-public:
-    static BOOL ShouldEnforceEEThreadNotRequiredContracts();
-
-#endif  // ENABLE_GET_THREAD_GENERIC_FULL_CHECK
-
-
 
 private:
     // For suspends:
@@ -7386,7 +7349,6 @@ inline void SetTypeHandleOnThreadForAlloc(TypeHandle th)
 
 #endif // CROSSGEN_COMPILE
 
-#ifdef FEATURE_IMPLICIT_TLS
 class Compiler;
 // users of OFFSETOF__TLS__tls_CurrentThread macro expect the offset of these variables wrt to _tls_start to be stable. 
 // Defining each of the following thread local variable separately without the struct causes the offsets to change in 
@@ -7398,11 +7360,7 @@ struct ThreadLocalInfo
     Thread* m_pThread;
     AppDomain* m_pAppDomain;
     void** m_EETlsData; // ClrTlsInfo::data
-#ifdef FEATURE_MERGE_JIT_AND_ENGINE
-    void* m_pJitTls;
-#endif
 };
-#endif // FEATURE_IMPLICIT_TLS
 
 class ThreadStateHolder
 {

@@ -13,7 +13,6 @@ namespace System
     using System.Runtime.CompilerServices;
     using System.Runtime.Versioning;
     using System.Diagnostics;
-    using System.Diagnostics.Contracts;
 
     [ClassInterface(ClassInterfaceType.AutoDual)]
     [System.Runtime.InteropServices.ComVisible(true)]
@@ -45,7 +44,6 @@ namespace System
 
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             // This API existed in v1/v1.1 and only expected to create closed
             // instance delegates. Constrain the call to BindToMethodName to
@@ -67,12 +65,11 @@ namespace System
             if (target == null)
                 throw new ArgumentNullException(nameof(target));
 
-            if (target.IsGenericType && target.ContainsGenericParameters)
+            if (target.ContainsGenericParameters)
                 throw new ArgumentException(SR.Arg_UnboundGenParam, nameof(target));
 
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             RuntimeType rtTarget = target as RuntimeType;
             if (rtTarget == null)
@@ -133,9 +130,9 @@ namespace System
             // It may also happen that the method pointer was not jitted when creating one delegate and jitted in the other 
             // if that's the case the delegates may still be equals but we need to make a more complicated check
 
-            if (_methodPtrAux.IsNull())
+            if (_methodPtrAux == IntPtr.Zero)
             {
-                if (!d._methodPtrAux.IsNull())
+                if (d._methodPtrAux != IntPtr.Zero)
                     return false; // different delegate kind
                 // they are both closed over the first arg
                 if (_target != d._target)
@@ -144,7 +141,7 @@ namespace System
             }
             else
             {
-                if (d._methodPtrAux.IsNull())
+                if (d._methodPtrAux == IntPtr.Zero)
                     return false; // different delegate kind
 
                 // Ignore the target as it will be the delegate instance, though it may be a different one
@@ -173,12 +170,12 @@ namespace System
             // in that case the delegate is the same and Equals will return true but GetHashCode returns a
             // different hashcode which is not true.
             /*
-            if (_methodPtrAux.IsNull())
+            if (_methodPtrAux == IntPtr.Zero)
                 return unchecked((int)((long)this._methodPtr));
             else
                 return unchecked((int)((long)this._methodPtrAux));
             */
-            if (_methodPtrAux.IsNull())
+            if (_methodPtrAux == IntPtr.Zero)
                 return ( _target != null ? RuntimeHelpers.GetHashCode(_target) * 33 : 0) + GetType().GetHashCode();
             else
                 return GetType().GetHashCode();
@@ -232,7 +229,7 @@ namespace System
                     bool isStatic = (RuntimeMethodHandle.GetAttributes(method) & MethodAttributes.Static) != (MethodAttributes)0;
                     if (!isStatic)
                     {
-                        if (_methodPtrAux == (IntPtr)0)
+                        if (_methodPtrAux == IntPtr.Zero)
                         {
                             // The target may be of a derived type that doesn't have visibility onto the
                             // target method. We don't want to call RuntimeType.GetMethodBase below with that
@@ -260,7 +257,7 @@ namespace System
                             // RCWs don't need to be "strongly-typed" in which case we don't find a base type
                             // that matches the declaring type of the method. This is fine because interop needs
                             // to work with exact methods anyway so declaringType is never shared at this point.
-                            BCLDebug.Assert(currentType != null || _target.GetType().IsCOMObject, "The class hierarchy should declare the method");
+                            Debug.Assert(currentType != null || _target.GetType().IsCOMObject, "The class hierarchy should declare the method");
                         }
                         else
                         {
@@ -349,7 +346,6 @@ namespace System
                 throw new ArgumentNullException(nameof(target));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             RuntimeType rtType = type as RuntimeType;
             if (rtType == null)
@@ -398,11 +394,10 @@ namespace System
                 throw new ArgumentNullException(nameof(type));
             if (target == null)
                 throw new ArgumentNullException(nameof(target));
-            if (target.IsGenericType && target.ContainsGenericParameters)
+            if (target.ContainsGenericParameters)
                 throw new ArgumentException(SR.Arg_UnboundGenParam, nameof(target));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             RuntimeType rtType = type as RuntimeType;
             RuntimeType rtTarget = target as RuntimeType;
@@ -440,7 +435,6 @@ namespace System
                 throw new ArgumentNullException(nameof(type));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             RuntimeType rtType = type as RuntimeType;
             if (rtType == null)
@@ -490,7 +484,6 @@ namespace System
                 throw new ArgumentNullException(nameof(type));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            Contract.EndContractBlock();
 
             RuntimeType rtType = type as RuntimeType;
             if (rtType == null)
@@ -558,7 +551,6 @@ namespace System
             // Validate the parameters.
             if (type == null)
                 throw new ArgumentNullException(nameof(type));
-            Contract.EndContractBlock();
 
             if (method.IsNullHandle())
                 throw new ArgumentNullException(nameof(method));
@@ -594,7 +586,6 @@ namespace System
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
-            Contract.EndContractBlock();
 
             RuntimeMethodInfo rtMethod = method as RuntimeMethodInfo;
             if (rtMethod == null)
@@ -688,7 +679,7 @@ namespace System
 
         internal virtual Object GetTarget()
         {
-            return (_methodPtrAux.IsNull()) ? _target : null;
+            return (_methodPtrAux == IntPtr.Zero) ? _target : null;
         }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]

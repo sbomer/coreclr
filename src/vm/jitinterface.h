@@ -22,6 +22,14 @@
 #define MAX_UNCHECKED_OFFSET_FOR_NULL_OBJECT ((GetOsPageSize() / 2) - 1)
 #endif // !FEATURE_PAL
 
+
+enum StompWriteBarrierCompletionAction
+{
+    SWB_PASS = 0x0,
+    SWB_ICACHE_FLUSH = 0x1,
+    SWB_EE_RESTART = 0x2
+};
+
 class Stub;
 class MethodDesc;
 class FieldDesc;
@@ -294,20 +302,20 @@ public:
     WriteBarrierManager();
     void Initialize();
     
-    void UpdateEphemeralBounds(bool isRuntimeSuspended);
-    void UpdateWriteWatchAndCardTableLocations(bool isRuntimeSuspended, bool bReqUpperBoundsCheck);
+    int UpdateEphemeralBounds(bool isRuntimeSuspended);
+    int UpdateWriteWatchAndCardTableLocations(bool isRuntimeSuspended, bool bReqUpperBoundsCheck);
 
 #ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-    void SwitchToWriteWatchBarrier(bool isRuntimeSuspended);
-    void SwitchToNonWriteWatchBarrier(bool isRuntimeSuspended);
+    int SwitchToWriteWatchBarrier(bool isRuntimeSuspended);
+    int SwitchToNonWriteWatchBarrier(bool isRuntimeSuspended);
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+    size_t GetCurrentWriteBarrierSize();
 
 protected:
-    size_t GetCurrentWriteBarrierSize();
     size_t GetSpecificWriteBarrierSize(WriteBarrierType writeBarrier);
     PBYTE  CalculatePatchLocation(LPVOID base, LPVOID label, int offset);
     PCODE  GetCurrentWriteBarrierCode();
-    void   ChangeWriteBarrierTo(WriteBarrierType newWriteBarrier, bool isRuntimeSuspended);
+    int ChangeWriteBarrierTo(WriteBarrierType newWriteBarrier, bool isRuntimeSuspended);
     bool   NeedDifferentWriteBarrier(bool bReqUpperBoundsCheck, WriteBarrierType* pNewWriteBarrierType);
 
 private:    
@@ -456,6 +464,8 @@ public:
     void LongLifetimeFree(void* obj);
     size_t getClassModuleIdForStatics(CORINFO_CLASS_HANDLE clsHnd, CORINFO_MODULE_HANDLE *pModuleHandle, void **ppIndirection);
     const char* getClassName (CORINFO_CLASS_HANDLE cls);
+    const char* getClassNameFromMetadata (CORINFO_CLASS_HANDLE cls, const char** namespaceName);
+    CORINFO_CLASS_HANDLE getTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index);
     const char* getHelperName(CorInfoHelpFunc ftnNum);
     int appendClassName(__deref_inout_ecount(*pnBufLen) WCHAR** ppBuf,
                                   int* pnBufLen,
@@ -541,6 +551,12 @@ public:
             CORINFO_CLASS_HANDLE        cls
             );
 
+    // "System.Int32" ==> CORINFO_TYPE_INT..
+    // "System.UInt32" ==> CORINFO_TYPE_UINT..
+    CorInfoType getTypeForPrimitiveNumericClass(
+            CORINFO_CLASS_HANDLE        cls
+            );
+
     // TRUE if child is a subtype of parent
     // if parent is an interface, then does child implement / extend parent
     BOOL canCast(
@@ -550,6 +566,20 @@ public:
 
     // TRUE if cls1 and cls2 are considered equivalent types.
     BOOL areTypesEquivalent(
+            CORINFO_CLASS_HANDLE        cls1,
+            CORINFO_CLASS_HANDLE        cls2
+            );
+
+    // See if a cast from fromClass to toClass will succeed, fail, or needs
+    // to be resolved at runtime.
+    TypeCompareState compareTypesForCast(
+            CORINFO_CLASS_HANDLE        fromClass,
+            CORINFO_CLASS_HANDLE        toClass
+            );
+
+    // See if types represented by cls1 and cls2 compare equal, not
+    // equal, or the comparison needs to be resolved at runtime.
+    TypeCompareState compareTypesForEquality(
             CORINFO_CLASS_HANDLE        cls1,
             CORINFO_CLASS_HANDLE        cls2
             );
@@ -649,6 +679,7 @@ public:
 
     // ICorMethodInfo stuff
     const char* getMethodName (CORINFO_METHOD_HANDLE ftnHnd, const char** scopeName);
+    const char* getMethodNameFromMetadata (CORINFO_METHOD_HANDLE ftnHnd, const char** className, const char** namespaceName);
     unsigned getMethodHash (CORINFO_METHOD_HANDLE ftnHnd);
 
     DWORD getMethodAttribs (CORINFO_METHOD_HANDLE ftnHnd);
@@ -740,6 +771,19 @@ public:
         CORINFO_METHOD_HANDLE virtualMethod,
         CORINFO_CLASS_HANDLE implementingClass,
         CORINFO_CONTEXT_HANDLE ownerType
+        );
+
+    CORINFO_METHOD_HANDLE getUnboxedEntry(
+        CORINFO_METHOD_HANDLE ftn,
+        bool* requiresInstMethodTableArg
+    );
+
+    CORINFO_CLASS_HANDLE getDefaultEqualityComparerClass(
+        CORINFO_CLASS_HANDLE elemType
+        );
+
+    CORINFO_CLASS_HANDLE getDefaultEqualityComparerClassHelper(
+        CORINFO_CLASS_HANDLE elemType
         );
 
     void expandRawHandleIntrinsic(
@@ -1324,11 +1368,29 @@ public:
         LIMITED_METHOD_CONTRACT;
         return m_fRel32Overflow;
     }
+
+    size_t GetReserveForJumpStubs()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_reserveForJumpStubs;
+    }
+
+    void SetReserveForJumpStubs(size_t value)
+    {
+        LIMITED_METHOD_CONTRACT;
+        m_reserveForJumpStubs = value;
+    }
 #else
     BOOL JitAgain()
     {
         LIMITED_METHOD_CONTRACT;
         return FALSE;
+    }
+
+    size_t GetReserveForJumpStubs()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return 0;
     }
 #endif
 
@@ -1349,6 +1411,7 @@ public:
 #ifdef _TARGET_AMD64_
           m_fAllowRel32(FALSE),
           m_fRel32Overflow(FALSE),
+          m_reserveForJumpStubs(0),
 #endif
           m_GCinfo_len(0),
           m_EHinfo_len(0),
@@ -1433,6 +1496,7 @@ protected :
     BOOL                    m_fAllowRel32;      // Use 32-bit PC relative address modes
     BOOL                    m_fRel32Overflow;   // Overflow while trying to use encode 32-bit PC relative address. 
                                                 // The code will need to be regenerated with m_fRel32Allowed == FALSE.
+    size_t                  m_reserveForJumpStubs; // Space to reserve for jump stubs when allocating code
 #endif
 
 #if defined(_DEBUG)

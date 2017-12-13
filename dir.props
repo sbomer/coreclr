@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Condition="Exists('..\dir.props')" Project="..\dir.props" />
-  
+
   <!--
     $(OS) is set to Unix/Windows_NT. This comes from an environment variable on Windows and MSBuild on Unix.
   -->
   <PropertyGroup>
     <OsEnvironment Condition="'$(OsEnvironment)'=='' and '$(OS)'=='OSX'">Unix</OsEnvironment>
     <OsEnvironment Condition="'$(OsEnvironment)'==''">$(OS)</OsEnvironment>
+  </PropertyGroup>
+
+  <!-- Set the kind of PDB to Portable and turn on SourceLink (fetching source from GitHub) -->
+  <PropertyGroup>
+    <DebugType Condition="'$(DebugType)' == ''">Portable</DebugType> 
+    <UseSourceLink>true</UseSourceLink>
   </PropertyGroup>
 
   <!-- Version numbers for both managed & native binaries -->
@@ -22,15 +28,9 @@
     <RoslynPackageName>Microsoft.Net.ToolsetCompilers</RoslynPackageName>
   </PropertyGroup>
 
-  <!-- Profile-based optimization data package versions -->
-  <PropertyGroup>
-    <PgoDataPackageVersion>99.99.99-master-20170712-0121</PgoDataPackageVersion>
-    <!--<IbcDataPackageVersion></IbcDataPackageVersion>-->
-  </PropertyGroup>
-
   <!--
      Switching to the .NET Core version of the BuildTools tasks seems to break numerous scenarios, such as VS intellisense and resource designer
-     as well as runnning the build on mono. Until we can get these sorted out we will continue using the .NET 4.5 version of the tasks.
+     as well as running the build on mono. Until we can get these sorted out we will continue using the .NET 4.5 version of the tasks.
      -->
   <PropertyGroup>
     <RunningOnCore>false</RunningOnCore>
@@ -61,15 +61,19 @@
     <SourceDir>$(__SourceDir)\</SourceDir>
     <SourceDir Condition="'$(__SourceDir)'==''">$(ProjectDir)src\</SourceDir>
 
-    <PackagesDir>$(__PackagesDir)\</PackagesDir>
-    <PackagesDir Condition="'$(__PackagesDir)'==''">$(ProjectDir)packages\</PackagesDir>
+    <!-- This name is used to create a GIT repository URL https://github.com/dotnet/$(GitHubRepositoryName) used to find source code for debugging -->
+    <GitHubRepositoryName Condition="'$(GitHubRepositoryName)' == ''">coreclr</GitHubRepositoryName>
+
+    <PackagesDir>$(DotNetRestorePackagesPath)</PackagesDir>
+    <PackagesDir Condition="'$(PackagesDir)'=='' and '$(__PackagesDir)'!=''">$(__PackagesDir)\</PackagesDir>
+    <PackagesDir Condition="'$(PackagesDir)'==''">$(ProjectDir)packages\</PackagesDir>
 
     <RootBinDir>$(__RootBinDir)\</RootBinDir>
     <RootBinDir Condition="'$(__RootBinDir)'==''">$(ProjectDir)bin\</RootBinDir>
 
     <BinDir>$(__BinDir)\</BinDir>
     <BinDir Condition="'$(__BinDir)'==''">$(RootBinDir)Product\$(BuildOS).$(BuildArch).$(BuildType)\</BinDir>
-    
+
     <__IntermediatesDir Condition="'$(__IntermediatesDir)' == ''">$(RootBinDir)obj\$(BuildOS).$(BuildArch).$(BuildType)</__IntermediatesDir>
     <IntermediateOutputRootPath Condition="'$(IntermediateOutputRootPath)' == ''">$(__IntermediatesDir)\</IntermediateOutputRootPath>
 
@@ -99,6 +103,11 @@
     <BaseIntermediateOutputPath Condition="'$(BaseIntermediateOutputPath)' == ''">$(RootBinDir)obj\</BaseIntermediateOutputPath>
     <IntermediateOutputPath Condition="'$(IntermediateOutputPath)' == ''">$(BaseIntermediateOutputPath)$(BuildOS).$(BuildArch).$(BuildType)\$(MSBuildProjectName)</IntermediateOutputPath>
     <OutputPath Condition="'$(OutputPath)' == ''">$(BinDir)</OutputPath>
+  </PropertyGroup>
+
+  <!-- Explicitly set BuildVersionFile before importing common. This is used by BuildVersion.targets. -->
+  <PropertyGroup Condition="'$(OfficialBuildId)' != ''">
+    <BuildVersionFile>$(BaseIntermediateOutputPath)BuildVersion-$(OfficialBuildId).props</BuildVersionFile>
   </PropertyGroup>
 
   <!-- Import Build tools common props file where repo-independent properties are found -->
@@ -138,19 +147,18 @@
     <ReleaseNotes>https://go.microsoft.com/fwlink/?LinkID=799421</ReleaseNotes>
 
     <ProjectUrl>https://dot.net</ProjectUrl>
-    
+
     <!-- On Windows, MSbuild still runs against Desktop FX while it runs on .NET Core on non-Windows. this requires
          pulling in different packaging dependencies.
      -->
     <PackagingTaskDir Condition="'$(TargetsWindows)' == 'true'">$(ToolsDir)net46/</PackagingTaskDir>
-    <BuildNumberMajor Condition="'$(BuildNumberMajor)' == ''">00001</BuildNumberMajor>
     <!-- defined in buildtools packaging.targets, but we need this before targets are imported -->
     <PackagePlatform Condition="'$(PackagePlatform)' == ''">$(Platform)</PackagePlatform>
     <PackagePlatform Condition="'$(PackagePlatform)' == 'amd64'">x64</PackagePlatform>
     <MinOSForArch>win7</MinOSForArch>
     <MinOSForArch Condition="'$(PackagePlatform)' == 'arm'">win8</MinOSForArch>
     <MinOSForArch Condition="'$(PackagePlatform)' == 'arm64'">win10</MinOSForArch>
-        <!-- This property must be set to disable local package installation -->
+    <!-- This property must be set to disable local package installation -->
     <SkipInstallLocallyBuiltPackages>true</SkipInstallLocallyBuiltPackages>
 
     <!-- Define packaging attributes for cross target components -->
@@ -158,8 +166,8 @@
     <CrossTargetComponentFolder Condition="'$(PackagePlatform)' == 'arm64'">x64</CrossTargetComponentFolder>
     <CrossTargetComponentFolder Condition="'$(PackagePlatform)' == 'arm'">x86</CrossTargetComponentFolder>
 
-    <PackageOutputPath>$(PackagesBinDir)/pkg/</PackageOutputPath>
-    <SymbolPackageOutputPath>$(PackagesBinDir)/symbolpkg/</SymbolPackageOutputPath>
+    <PackageOutputPath Condition="'$(PackageOutputPath)' == ''">$(PackagesBinDir)/pkg/</PackageOutputPath>
+    <SymbolPackageOutputPath Condition="'$(SymbolPackageOutputPath)' == ''">$(PackagesBinDir)/symbolpkg/</SymbolPackageOutputPath>
     <PackageIndexFile>$(MSBuildThisFileDirectory)/src/.nuget/packageIndex.json</PackageIndexFile>
 
     <!-- coreclr doesn't currently use the index so don't force it to be in sync -->
@@ -179,11 +187,7 @@
     <PackageIndex Include="$(PackageIndexFile)" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <BuildVersionFile>$(BaseIntermediateOutputPath)BuildVersion-$(OfficialBuildId).props</BuildVersionFile>
-  </PropertyGroup>
-
   <!-- Use Roslyn Compilers to build -->
-  <Import Project="$(RoslynPropsFile)" Condition="'$(RunningOnUnix)'!='true' and Exists('$(RoslynPropsFile)') and '$(UseRoslynCompilers)'!='false'" />
-  <Import Project="$(RoslynPropsFile)" Condition="'$(RunningOnUnix)'=='true' and Exists('$(RoslynPropsFile)')" />
+  <Import Project="$(RoslynPropsFile)" Condition="'$(RunningOnUnix)'!='true' and Exists('$(RoslynPropsFile)') and '$(UseRoslynCompilers)'!='false' and '$(RoslynIncompatibleMsbuildVersion)' != 'true'" />
+  <Import Project="$(RoslynPropsFile)" Condition="'$(RunningOnUnix)'=='true' and Exists('$(RoslynPropsFile)') and '$(RoslynIncompatibleMsbuildVersion)' != 'true'" />
 </Project>

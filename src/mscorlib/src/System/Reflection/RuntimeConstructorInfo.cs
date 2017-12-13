@@ -4,7 +4,6 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using RuntimeTypeCache = System.RuntimeType.RuntimeTypeCache;
 
@@ -57,8 +56,7 @@ namespace System.Reflection
                         // this should be an invocable method, determine the other flags that participate in invocation
                         invocationFlags |= RuntimeMethodHandle.GetSecurityFlags(this);
 
-                        // Check for attempt to create a delegate class, we demand unmanaged
-                        // code permission for this since it's hard to validate the target address.
+                        // Check for attempt to create a delegate class.
                         if (typeof(Delegate).IsAssignableFrom(DeclaringType))
                             invocationFlags |= INVOCATION_FLAGS.INVOCATION_FLAGS_IS_DELEGATE_CTOR;
                     }
@@ -76,8 +74,6 @@ namespace System.Reflection
             RuntimeMethodHandleInternal handle, RuntimeType declaringType, RuntimeTypeCache reflectedTypeCache,
             MethodAttributes methodAttributes, BindingFlags bindingFlags)
         {
-            Contract.Ensures(methodAttributes == RuntimeMethodHandle.GetAttributes(handle));
-
             m_bindingFlags = bindingFlags;
             m_reflectedTypeCache = reflectedTypeCache;
             m_declaringType = declaringType;
@@ -162,7 +158,6 @@ namespace System.Reflection
         {
             if (attributeType == null)
                 throw new ArgumentNullException(nameof(attributeType));
-            Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
@@ -176,7 +171,6 @@ namespace System.Reflection
         {
             if (attributeType == null)
                 throw new ArgumentNullException(nameof(attributeType));
-            Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
@@ -245,7 +239,6 @@ namespace System.Reflection
             return m_parameters;
         }
 
-        [Pure]
         public override ParameterInfo[] GetParameters()
         {
             ParameterInfo[] parameters = GetParametersNoCopy();
@@ -294,7 +287,6 @@ namespace System.Reflection
         {
             if (declaringType == null)
                 throw new ArgumentNullException(nameof(declaringType));
-            Contract.EndContractBlock();
 
             // ctor is ReflectOnly
             if (declaringType is ReflectionOnlyType)
@@ -364,16 +356,17 @@ namespace System.Reflection
                 throw new TargetParameterCountException(SR.Arg_ParmCnt);
 
             // if we are here we passed all the previous checks. Time to look at the arguments
+            bool wrapExceptions = (invokeAttr & BindingFlags.DoNotWrapExceptions) == 0;
             if (actualCount > 0)
             {
                 Object[] arguments = CheckArguments(parameters, binder, invokeAttr, culture, sig);
-                Object retValue = RuntimeMethodHandle.InvokeMethod(obj, arguments, sig, false);
+                Object retValue = RuntimeMethodHandle.InvokeMethod(obj, arguments, sig, false, wrapExceptions);
                 // copy out. This should be made only if ByRef are present.
                 for (int index = 0; index < arguments.Length; index++)
                     parameters[index] = arguments[index];
                 return retValue;
             }
-            return RuntimeMethodHandle.InvokeMethod(obj, null, sig, false);
+            return RuntimeMethodHandle.InvokeMethod(obj, null, sig, false, wrapExceptions);
         }
 
         public override MethodBody GetMethodBody()
@@ -434,16 +427,17 @@ namespace System.Reflection
             // JIT/NGen will insert the call to .cctor in the instance ctor.
 
             // if we are here we passed all the previous checks. Time to look at the arguments
+            bool wrapExceptions = (invokeAttr & BindingFlags.DoNotWrapExceptions) == 0;
             if (actualCount > 0)
             {
                 Object[] arguments = CheckArguments(parameters, binder, invokeAttr, culture, sig);
-                Object retValue = RuntimeMethodHandle.InvokeMethod(null, arguments, sig, true);
+                Object retValue = RuntimeMethodHandle.InvokeMethod(null, arguments, sig, true, wrapExceptions);
                 // copy out. This should be made only if ByRef are present.
                 for (int index = 0; index < arguments.Length; index++)
                     parameters[index] = arguments[index];
                 return retValue;
             }
-            return RuntimeMethodHandle.InvokeMethod(null, null, sig, true);
+            return RuntimeMethodHandle.InvokeMethod(null, null, sig, true, wrapExceptions);
         }
         #endregion
     }

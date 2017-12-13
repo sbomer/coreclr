@@ -147,7 +147,7 @@ void Compiler::lvaInitTypeRef()
         if (howToReturnStruct == SPK_PrimitiveType)
         {
             assert(returnType != TYP_UNKNOWN);
-            assert(returnType != TYP_STRUCT);
+            assert(!varTypeIsStruct(returnType));
 
             info.compRetNativeType = returnType;
 
@@ -247,15 +247,16 @@ void Compiler::lvaInitTypeRef()
          i++, varNum++, varDsc++, localsSig = info.compCompHnd->getArgNext(localsSig))
     {
         CORINFO_CLASS_HANDLE typeHnd;
-        CorInfoTypeWithMod   corInfoType =
+        CorInfoTypeWithMod   corInfoTypeWithMod =
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
+        CorInfoType corInfoType = strip(corInfoTypeWithMod);
 
-        lvaInitVarDsc(varDsc, varNum, strip(corInfoType), typeHnd, localsSig, &info.compMethodInfo->locals);
+        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd, localsSig, &info.compMethodInfo->locals);
 
-        varDsc->lvPinned  = ((corInfoType & CORINFO_TYPE_MOD_PINNED) != 0);
+        varDsc->lvPinned  = ((corInfoTypeWithMod & CORINFO_TYPE_MOD_PINNED) != 0);
         varDsc->lvOnFrame = true; // The final home for this local variable might be our local stack frame
 
-        if (strip(corInfoType) == CORINFO_TYPE_CLASS)
+        if (corInfoType == CORINFO_TYPE_CLASS)
         {
             CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
             lvaSetClass(varNum, clsHnd);
@@ -354,6 +355,13 @@ void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
 #if !FEATURE_STACK_FP_X87
     codeGen->floatRegState.rsCalleeRegArgCount = varDscInfo->floatRegArgNum;
 #endif // FEATURE_STACK_FP_X87
+
+#if FEATURE_FASTTAILCALL
+    // Save the stack usage information
+    // We can get register usage information using codeGen->intRegState and
+    // codeGen->floatRegState
+    info.compArgStackSize = varDscInfo->stackArgSize;
+#endif // FEATURE_FASTTAILCALL
 
     // The total argument size must be aligned.
     noway_assert((compArgSize % sizeof(void*)) == 0);
@@ -923,7 +931,6 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo)
         else
         {
 #if defined(_TARGET_ARM_)
-
             varDscInfo->setAllRegArgUsed(argType);
             if (varTypeIsFloating(argType))
             {
@@ -939,6 +946,10 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo)
             varDscInfo->setAllRegArgUsed(argType);
 
 #endif // _TARGET_XXX_
+
+#if FEATURE_FASTTAILCALL
+            varDscInfo->stackArgSize += (unsigned)roundUp(argSize, TARGET_POINTER_SIZE);
+#endif // FEATURE_FASTTAILCALL
         }
 
 #ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
@@ -1035,6 +1046,9 @@ void Compiler::lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo)
             // For the RyuJIT backend, we need to mark these as being on the stack,
             // as this is not done elsewhere in the case that canEnreg returns false.
             varDsc->lvOnFrame = true;
+#if FEATURE_FASTTAILCALL
+            varDscInfo->stackArgSize += TARGET_POINTER_SIZE;
+#endif // FEATURE_FASTTAILCALL
         }
 #endif // !LEGACY_BACKEND
 
@@ -1108,6 +1122,9 @@ void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
             // For the RyuJIT backend, we need to mark these as being on the stack,
             // as this is not done elsewhere in the case that canEnreg returns false.
             varDsc->lvOnFrame = true;
+#if FEATURE_FASTTAILCALL
+            varDscInfo->stackArgSize += TARGET_POINTER_SIZE;
+#endif // FEATURE_FASTTAILCALL
         }
 #endif // !LEGACY_BACKEND
 
@@ -1253,6 +1270,10 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
 #ifdef DEBUG
     varDsc->lvStkOffs = BAD_STK_OFFS;
 #endif
+
+#if FEATURE_MULTIREG_ARGS
+    varDsc->lvOtherArgReg = REG_NA;
+#endif // FEATURE_MULTIREG_ARGS
 }
 
 /*****************************************************************************
@@ -1439,9 +1460,13 @@ void Compiler::lvaCanPromoteStructType(CORINFO_CLASS_HANDLE    typeHnd,
         // In the future this may be changing to XMM_REGSIZE_BYTES.
         // Note: MaxOffset is used below to declare a local array, and therefore must be a compile-time constant.
         CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef FEATURE_SIMD
+#if defined(FEATURE_SIMD)
+#if defined(_TARGET_XARCH_)
         // This will allow promotion of 2 Vector<T> fields on AVX2, or 4 Vector<T> fields on SSE2.
         const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * XMM_REGSIZE_BYTES;
+#elif defined(_TARGET_ARM64_)
+        const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * FP_REGSIZE_BYTES;
+#endif // defined(_TARGET_XARCH_) || defined(_TARGET_ARM64_)
 #else  // !FEATURE_SIMD
         const int MaxOffset = MAX_NumOfFieldsInPromotableStruct * sizeof(double);
 #endif // !FEATURE_SIMD
@@ -2035,7 +2060,12 @@ void Compiler::lvaPromoteLongVars()
             fieldVarDsc->lvFldOffset     = (unsigned char)(index * genTypeSize(TYP_INT));
             fieldVarDsc->lvFldOrdinal    = (unsigned char)index;
             fieldVarDsc->lvParentLcl     = lclNum;
-            fieldVarDsc->lvIsParam       = isParam;
+            // Currently we do not support enregistering incoming promoted aggregates with more than one field.
+            if (isParam)
+            {
+                fieldVarDsc->lvIsParam = true;
+                lvaSetVarDoNotEnregister(varNum DEBUGARG(DNER_LongParamField));
+            }
         }
     }
 
@@ -2170,6 +2200,11 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             assert(varDsc->lvPinned);
             break;
 #endif
+#if !defined(LEGACY_BACKEND) && !defined(_TARGET_64BIT_)
+        case DNER_LongParamField:
+            JITDUMP("it is a decomposed field of a long parameter\n");
+            break;
+#endif
         default:
             unreached();
             break;
@@ -2180,7 +2215,7 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
 // Returns true if this local var is a multireg struct
 bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc)
 {
-    if (varDsc->TypeGet() == TYP_STRUCT)
+    if (varTypeIsStruct(varDsc->TypeGet()))
     {
         CORINFO_CLASS_HANDLE clsHnd = varDsc->lvVerTypeInfo.GetClassHandleForValueClass();
         structPassingKind    howToPassStruct;
@@ -2189,14 +2224,14 @@ bool Compiler::lvaIsMultiregStruct(LclVarDsc* varDsc)
 
         if (howToPassStruct == SPK_ByValueAsHfa)
         {
-            assert(type == TYP_STRUCT);
+            assert(varTypeIsStruct(TYP_STRUCT));
             return true;
         }
 
 #if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING) || defined(_TARGET_ARM64_)
         if (howToPassStruct == SPK_ByValue)
         {
-            assert(type == TYP_STRUCT);
+            assert(varTypeIsStruct(TYP_STRUCT));
             return true;
         }
 #endif
@@ -2230,7 +2265,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
         size_t lvSize = varDsc->lvSize();
         assert((lvSize % sizeof(void*)) ==
                0); // The struct needs to be a multiple of sizeof(void*) bytes for getClassGClayout() to be valid.
-        varDsc->lvGcLayout = (BYTE*)compGetMemA((lvSize / sizeof(void*)) * sizeof(BYTE), CMK_LvaTable);
+        varDsc->lvGcLayout = (BYTE*)compGetMem((lvSize / sizeof(void*)) * sizeof(BYTE), CMK_LvaTable);
         unsigned  numGCVars;
         var_types simdBaseType = TYP_UNKNOWN;
         varDsc->lvType         = impNormStructType(typeHnd, varDsc->lvGcLayout, &numGCVars, &simdBaseType);
@@ -3440,6 +3475,48 @@ void LclVarDsc::lvaDisqualifyVar()
 }
 #endif // ASSERTION_PROP
 
+/**********************************************************************************
+* Get stack size of the varDsc.
+*/
+const size_t LclVarDsc::lvArgStackSize() const
+{
+    // Make sure this will have a stack size
+    assert(!this->lvIsRegArg);
+
+    size_t stackSize = 0;
+    if (varTypeIsStruct(this))
+    {
+#if defined(WINDOWS_AMD64_ABI)
+        // Structs are either passed by reference or can be passed by value using one pointer
+        stackSize = TARGET_POINTER_SIZE;
+#elif defined(_TARGET_ARM64_) || defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+        // lvSize performs a roundup.
+        stackSize = this->lvSize();
+
+#if defined(_TARGET_ARM64_)
+        if ((stackSize > TARGET_POINTER_SIZE * 2) && (!this->lvIsHfa()))
+        {
+            // If the size is greater than 16 bytes then it will
+            // be passed by reference.
+            stackSize = TARGET_POINTER_SIZE;
+        }
+#endif // defined(_TARGET_ARM64_)
+
+#else // !_TARGET_ARM64_ !WINDOWS_AMD64_ABI !FEATURE_UNIX_AMD64_STRUCT_PASSING
+
+        NYI("Unsupported target.");
+        unreached();
+
+#endif //  !_TARGET_ARM64_ !WINDOWS_AMD64_ABI !FEATURE_UNIX_AMD64_STRUCT_PASSING
+    }
+    else
+    {
+        stackSize = TARGET_POINTER_SIZE;
+    }
+
+    return stackSize;
+}
+
 #ifndef LEGACY_BACKEND
 /**********************************************************************************
 * Get type of a variable when passed as an argument.
@@ -3537,7 +3614,7 @@ void Compiler::lvaMarkLclRefs(GenTreePtr tree)
 
     /* Is this an assigment? */
 
-    if (tree->OperKind() & GTK_ASGOP)
+    if (tree->OperIsAssignment())
     {
         GenTreePtr op1 = tree->gtOp.gtOp1;
         GenTreePtr op2 = tree->gtOp.gtOp2;
@@ -3549,6 +3626,7 @@ void Compiler::lvaMarkLclRefs(GenTreePtr tree)
             unsigned   lclNum;
             LclVarDsc* varDsc = nullptr;
 
+#ifdef LEGACY_BACKEND
             /* GT_CHS is special it doesn't have a valid op2 */
             if (tree->gtOper == GT_CHS)
             {
@@ -3560,6 +3638,7 @@ void Compiler::lvaMarkLclRefs(GenTreePtr tree)
                 }
             }
             else
+#endif
             {
                 if (op2->gtOper == GT_LCL_VAR)
                 {
@@ -5674,7 +5753,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
     alloc_order[cur] = 0;
 
-    noway_assert(cur < sizeof(alloc_order) / sizeof(alloc_order[0]));
+    noway_assert(cur < _countof(alloc_order));
 
     // Force first pass to happen
     UINT assignMore             = 0xFFFFFFFF;
@@ -6075,8 +6154,8 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 #endif
                             ))
     {
-        // Note that stack offsets are negative
-        assert(stkOffs < 0);
+        // Note that stack offsets are negative or equal to zero
+        assert(stkOffs <= 0);
 
         // alignment padding
         unsigned pad = 0;
@@ -6344,7 +6423,15 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
             {
                 noway_assert(promotionType == PROMOTION_TYPE_DEPENDENT);
                 noway_assert(varDsc->lvOnFrame);
-                varDsc->lvStkOffs = parentvarDsc->lvStkOffs + varDsc->lvFldOffset;
+                if (parentvarDsc->lvOnFrame)
+                {
+                    varDsc->lvStkOffs = parentvarDsc->lvStkOffs + varDsc->lvFldOffset;
+                }
+                else
+                {
+                    varDsc->lvOnFrame = false;
+                    noway_assert(varDsc->lvRefCnt == 0);
+                }
             }
         }
     }
@@ -7221,6 +7308,14 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTreePtr* pTree, fgWalkData
         // Calculate padding
         unsigned padding = LCL_FLD_PADDING(lclNum);
 
+#ifdef _TARGET_ARMARCH_
+        // We need to support alignment requirements to access memory on ARM ARCH
+        unsigned alignment = 1;
+        pComp->codeGen->InferOpSizeAlign(lcl, &alignment);
+        alignment = (unsigned)roundUp(alignment, TARGET_POINTER_SIZE);
+        padding   = (unsigned)roundUp(padding, alignment);
+#endif // _TARGET_ARMARCH_
+
         // Change the variable to a TYP_BLK
         if (varType != TYP_BLK)
         {
@@ -7244,11 +7339,10 @@ Compiler::fgWalkResult Compiler::lvaStressLclFldCB(GenTreePtr* pTree, fgWalkData
             /* Change addr(lclVar) to addr(lclVar)+padding */
 
             noway_assert(oper == GT_ADDR);
-            GenTreePtr newAddr = new (pComp, GT_NONE) GenTreeOp(*tree->AsOp());
+            GenTreePtr paddingTree = pComp->gtNewIconNode(padding);
+            GenTreePtr newAddr     = pComp->gtNewOperNode(GT_ADD, tree->gtType, tree, paddingTree);
 
-            tree->ChangeOper(GT_ADD);
-            tree->gtOp.gtOp1 = newAddr;
-            tree->gtOp.gtOp2 = pComp->gtNewIconNode(padding);
+            *pTree = newAddr;
 
             lcl->gtType = TYP_BLK;
         }

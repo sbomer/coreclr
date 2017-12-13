@@ -27,7 +27,6 @@
 #undef GetCurrentTime
 
 
-#ifdef  FEATURE_RANDOMIZED_STRING_HASHING
 #pragma warning(push)
 #pragma warning(disable:4324)
 #if !defined(CROSS_COMPILE) && defined(_TARGET_ARM_) && !defined(PLATFORM_UNIX)
@@ -35,43 +34,6 @@
 #endif
 #include "marvin32.h"
 #pragma warning(pop)
-#endif
-
-//
-//
-// PARSE NUMBERS
-//
-//
-
-#define MinRadix 2
-#define MaxRadix 36
-
-class ParseNumbers {
-
-    enum FmtFlags {
-      LeftAlign = 0x1,  //Ensure that these conform to the values specified in the managed files.
-      CenterAlign = 0x2,
-      RightAlign = 0x4,
-      PrefixSpace = 0x8,
-      PrintSign = 0x10,
-      PrintBase = 0x20,
-      TreatAsUnsigned = 0x10,
-      PrintAsI1 = 0x40,
-      PrintAsI2 = 0x80,
-      PrintAsI4 = 0x100,
-      PrintRadixBase = 0x200,
-      AlternateForm = 0x400};
-
-public:
-
-    static INT32 GrabInts(const INT32 radix, __in_ecount(length) WCHAR *buffer, const int length, int *i, BOOL isUnsigned);
-    static INT64 GrabLongs(const INT32 radix, __in_ecount(length) WCHAR *buffer, const int length, int *i, BOOL isUnsigned);    
-
-    static FCDECL5(LPVOID, IntToString, INT32 l, INT32 radix, INT32 width, CLR_CHAR paddingChar, INT32 flags);
-    static FCDECL5_VII(LPVOID, LongToString, INT64 l, INT32 radix, INT32 width, CLR_CHAR paddingChar, INT32 flags);
-    static FCDECL4(INT32, StringToInt, StringObject * s, INT32 radix, INT32 flags, INT32* currPos);
-    static FCDECL4(INT64, StringToLong, StringObject * s, INT32 radix, INT32 flags, INT32* currPos);
-};
 
 //
 //
@@ -127,7 +89,6 @@ public:
     // This method from one primitive array to another based
     //      upon an offset into each an a byte count.
     static FCDECL5(VOID, BlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, int dstOffset, int count);
-    static FCDECL5(VOID, InternalBlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, int dstOffset, int count);
     static FCDECL2(FC_UINT8_RET, GetByte, ArrayBase *arrayUNSAFE, INT32 index);
     static FCDECL3(VOID, SetByte, ArrayBase *arrayUNSAFE, INT32 index, UINT8 bData);
     static FCDECL1(FC_BOOL_RET, IsPrimitiveTypeArray, ArrayBase *arrayUNSAFE);
@@ -239,12 +200,6 @@ public:
         static void QCALLTYPE MemoryBarrierProcessWide();
 };
 
-class ManagedLoggingHelper {
-
-public:
-    static FCDECL6(INT32, GetRegistryLoggingValues, CLR_BOOL* bLoggingEnabled, CLR_BOOL* bLogToConsole, INT32 *bLogLevel, CLR_BOOL* bPerfWarnings, CLR_BOOL* bCorrectnessWarnings, CLR_BOOL* bSafeHandleStackTraces);
-};
-
 class ValueTypeHelper {
 public:
     static FCDECL1(FC_BOOL_RET, CanCompareBits, Object* obj);
@@ -260,33 +215,24 @@ class COMNlsHashProvider {
 public:
     COMNlsHashProvider();
 
-    INT32 HashString(LPCWSTR szStr, SIZE_T strLen, BOOL forceRandomHashing, INT64 additionalEntropy);
-    INT32 HashSortKey(PCBYTE pSrc, SIZE_T cbSrc, BOOL forceRandomHashing, INT64 additionalEntropy);
-    INT32 HashiStringKnownLower80(LPCWSTR lpszStr, INT32 strLen, BOOL forceRandomHashing, INT64 additionalEntropy);
+    INT32 HashString(LPCWSTR szStr, SIZE_T strLen);
+    INT32 HashSortKey(PCBYTE pSrc, SIZE_T cbSrc);
 
     static COMNlsHashProvider s_NlsHashProvider;
 
-#ifdef  FEATURE_RANDOMIZED_STRING_HASHING
-    void SetUseRandomHashing(BOOL useRandomHashing) { LIMITED_METHOD_CONTRACT; bUseRandomHashing = useRandomHashing; }
-    BOOL GetUseRandomHashing() { LIMITED_METHOD_CONTRACT; return bUseRandomHashing; }
-
-
 private:
-    BOOL bUseRandomHashing;
     PBYTE pEntropy;
     PCSYMCRYPT_MARVIN32_EXPANDED_SEED pDefaultSeed;
 
     PCBYTE GetEntropy();
     PCSYMCRYPT_MARVIN32_EXPANDED_SEED GetDefaultSeed();
     void InitializeDefaultSeed();
-    void CreateMarvin32Seed(INT64 additionalEntropy, PSYMCRYPT_MARVIN32_EXPANDED_SEED pExpandedMarvinSeed);
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
 };
 
 #ifdef FEATURE_COREFX_GLOBALIZATION
 class CoreFxGlobalization {
 public:
-  static INT32 QCALLTYPE HashSortKey(PCBYTE pSortKey, INT32 cbSortKey, BOOL forceRandomizedHashing, INT64 additionalEntropy);
+  static INT32 QCALLTYPE HashSortKey(PCBYTE pSortKey, INT32 cbSortKey);
 };
 #endif // FEATURE_COREFX_GLOBALIZATION
 

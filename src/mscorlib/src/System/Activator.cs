@@ -23,7 +23,6 @@ namespace System
     using System.Runtime.CompilerServices;
     using AssemblyHashAlgorithm = System.Configuration.Assemblies.AssemblyHashAlgorithm;
     using System.Runtime.Versioning;
-    using System.Diagnostics.Contracts;
 
     // Only statics, does not need to be marked with the serializable attribute
     public sealed class Activator
@@ -51,7 +50,6 @@ namespace System
             return CreateInstance(type, bindingAttr, binder, args, culture, null);
         }
 
-        [System.Security.DynamicSecurityMethod] // Methods containing StackCrawlMark local var has to be marked DynamicSecurityMethod
         static public Object CreateInstance(Type type,
                                             BindingFlags bindingAttr,
                                             Binder binder,
@@ -61,7 +59,6 @@ namespace System
         {
             if ((object)type == null)
                 throw new ArgumentNullException(nameof(type));
-            Contract.EndContractBlock();
 
             if (type is System.Reflection.Emit.TypeBuilder)
                 throw new NotSupportedException(SR.NotSupported_CreateInstanceWithTypeBuilder);
@@ -80,8 +77,7 @@ namespace System
             if (rt == null)
                 throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
 
-            StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
-            return rt.CreateInstanceImpl(bindingAttr, binder, args, culture, activationAttributes, ref stackMark);
+            return rt.CreateInstanceImpl(bindingAttr, binder, args, culture, activationAttributes);
         }
 
         static public Object CreateInstance(Type type, params Object[] args)
@@ -111,23 +107,24 @@ namespace System
             return Activator.CreateInstance(type, false);
         }
 
-        [System.Security.DynamicSecurityMethod] // Methods containing StackCrawlMark local var has to be marked DynamicSecurityMethod
         static public Object CreateInstance(Type type, bool nonPublic)
+        {
+            return CreateInstance(type, nonPublic, wrapExceptions: true);
+        }
+
+        static internal Object CreateInstance(Type type, bool nonPublic, bool wrapExceptions)
         {
             if ((object)type == null)
                 throw new ArgumentNullException(nameof(type));
-            Contract.EndContractBlock();
 
             RuntimeType rt = type.UnderlyingSystemType as RuntimeType;
 
             if (rt == null)
                 throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
 
-            StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
-            return rt.CreateInstanceDefaultCtor(!nonPublic, false, true, ref stackMark);
+            return rt.CreateInstanceDefaultCtor(!nonPublic, false, true, wrapExceptions);
         }
 
-        [System.Security.DynamicSecurityMethod] // Methods containing StackCrawlMark local var has to be marked DynamicSecurityMethod
         static public T CreateInstance<T>()
         {
             RuntimeType rt = typeof(T) as RuntimeType;
@@ -137,10 +134,8 @@ namespace System
             if (rt.HasElementType)
                 throw new MissingMethodException(SR.Arg_NoDefCTor);
 
-            StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
-
             // Skip the CreateInstanceCheckThis call to avoid perf cost and to maintain compatibility with V2 (throwing the same exceptions).
-            return (T)rt.CreateInstanceDefaultCtor(true /*publicOnly*/, true /*skipCheckThis*/, true /*fillCache*/, ref stackMark);
+            return (T)rt.CreateInstanceDefaultCtor(true /*publicOnly*/, true /*skipCheckThis*/, true /*fillCache*/, true /*wrapExceptions*/);
         }
     }
 }

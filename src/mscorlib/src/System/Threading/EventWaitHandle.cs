@@ -34,7 +34,6 @@ namespace System.Threading
     using System.Runtime.InteropServices;
     using System.Runtime.Versioning;
     using System.Security.AccessControl;
-    using System.Diagnostics.Contracts;
 
     [ComVisibleAttribute(true)]
     public class EventWaitHandle : WaitHandle
@@ -57,7 +56,6 @@ namespace System.Threading
                 }
 #endif
             }
-            Contract.EndContractBlock();
 
             uint eventFlags = initialState ? Win32Native.CREATE_EVENT_INITIAL_SET : 0;
             switch (mode)
@@ -83,7 +81,7 @@ namespace System.Threading
                 if (null != name && 0 != name.Length && Win32Native.ERROR_INVALID_HANDLE == errorCode)
                     throw new WaitHandleCannotBeOpenedException(SR.Format(SR.Threading_WaitHandleCannotBeOpenedException_InvalidHandle, name));
 
-                __Error.WinIOError(errorCode, name);
+                throw Win32Marshal.GetExceptionForWin32Error(errorCode, name);
             }
             SetHandleInternal(_handle);
         }
@@ -106,7 +104,6 @@ namespace System.Threading
                 }
 #endif
             }
-            Contract.EndContractBlock();
             Win32Native.SECURITY_ATTRIBUTES secAttrs = null;
 
             uint eventFlags = initialState ? Win32Native.CREATE_EVENT_INITIAL_SET : 0;
@@ -132,7 +129,7 @@ namespace System.Threading
                 if (null != name && 0 != name.Length && Win32Native.ERROR_INVALID_HANDLE == errorCode)
                     throw new WaitHandleCannotBeOpenedException(SR.Format(SR.Threading_WaitHandleCannotBeOpenedException_InvalidHandle, name));
 
-                __Error.WinIOError(errorCode, name);
+                throw Win32Marshal.GetExceptionForWin32Error(errorCode, name);
             }
             createdNew = errorCode != Win32Native.ERROR_ALREADY_EXISTS;
             SetHandleInternal(_handle);
@@ -160,8 +157,7 @@ namespace System.Threading
                     throw new WaitHandleCannotBeOpenedException(SR.Format(SR.Threading_WaitHandleCannotBeOpenedException_InvalidHandle, name));
 
                 case OpenExistingResult.PathNotFound:
-                    __Error.WinIOError(Win32Native.ERROR_PATH_NOT_FOUND, "");
-                    return result; //never executes
+                    throw Win32Marshal.GetExceptionForWin32Error(Win32Native.ERROR_PATH_NOT_FOUND, "");
 
                 default:
                     return result;
@@ -193,7 +189,6 @@ namespace System.Threading
                 throw new ArgumentException(SR.Format(SR.Argument_WaitHandleNameTooLong, Path.MaxPath), nameof(name));
             }
 
-            Contract.EndContractBlock();
 
             result = null;
 
@@ -210,7 +205,7 @@ namespace System.Threading
                 if (null != name && 0 != name.Length && Win32Native.ERROR_INVALID_HANDLE == errorCode)
                     return OpenExistingResult.NameInvalid;
                 //this is for passed through Win32Native Errors
-                __Error.WinIOError(errorCode, "");
+                throw Win32Marshal.GetExceptionForWin32Error(errorCode, "");
             }
             result = new EventWaitHandle(myHandle);
             return OpenExistingResult.Success;
@@ -220,7 +215,7 @@ namespace System.Threading
         {
             bool res = Win32Native.ResetEvent(safeWaitHandle);
             if (!res)
-                __Error.WinIOError();
+                throw Win32Marshal.GetExceptionForLastWin32Error();
             return res;
         }
         public bool Set()
@@ -228,7 +223,7 @@ namespace System.Threading
             bool res = Win32Native.SetEvent(safeWaitHandle);
 
             if (!res)
-                __Error.WinIOError();
+                throw Win32Marshal.GetExceptionForLastWin32Error();
 
             return res;
         }

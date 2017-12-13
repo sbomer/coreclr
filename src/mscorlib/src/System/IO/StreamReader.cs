@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Diagnostics.Contracts;
 using System.Threading.Tasks;
 
 namespace System.IO
@@ -58,7 +57,6 @@ namespace System.IO
         // This is used only for preamble detection
         private int bytePos;
 
-        [NonSerialized]
         private StringBuilder _builder;
 
         // This is the maximum number of chars we can get from one call to 
@@ -84,14 +82,12 @@ namespace System.IO
         private bool _isBlocked;
 
         // The intent of this field is to leave open the underlying stream when 
-        // disposing of this StreamReader.  A name like _leaveOpen is better, 
-        // but this type is serializable, and this field's name was _closable.
-        private bool _closable;  // Whether to close the underlying stream.
+        // disposing of this StreamReader.
+        private bool _leaveOpen;  // Whether to keep the underlying stream open.
 
         // We don't guarantee thread safety on StreamReader, but we should at 
         // least prevent users from trying to read anything while an Async
         // read from the same thread is in progress.
-        [NonSerialized]
         private volatile Task _asyncReadTask;
 
         private void CheckAsyncTaskInProgress()
@@ -151,7 +147,6 @@ namespace System.IO
                 throw new ArgumentException(SR.Argument_StreamNotReadable);
             if (bufferSize <= 0)
                 throw new ArgumentOutOfRangeException(nameof(bufferSize), SR.ArgumentOutOfRange_NeedPosNum);
-            Contract.EndContractBlock();
 
             Init(stream, encoding, detectEncodingFromByteOrderMarks, bufferSize, leaveOpen);
         }
@@ -183,7 +178,6 @@ namespace System.IO
                 throw new ArgumentException(SR.Argument_EmptyPath);
             if (bufferSize <= 0)
                 throw new ArgumentOutOfRangeException(nameof(bufferSize), SR.ArgumentOutOfRange_NeedPosNum);
-            Contract.EndContractBlock();
 
             Stream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultFileStreamBufferSize, FileOptions.SequentialScan);
             Init(stream, encoding, detectEncodingFromByteOrderMarks, bufferSize, false);
@@ -216,14 +210,14 @@ namespace System.IO
 
             _checkPreamble = (_preamble.Length > 0);
             _isBlocked = false;
-            _closable = !leaveOpen;
+            _leaveOpen = leaveOpen;
         }
 
         // Init used by NullStreamReader, to delay load encoding
         internal void Init(Stream stream)
         {
             this.stream = stream;
-            _closable = true;
+            _leaveOpen = false;
         }
 
         public override void Close()
@@ -265,7 +259,7 @@ namespace System.IO
         }
 
         internal bool LeaveOpen {
-            get { return !_closable; }
+            get { return _leaveOpen; }
         }
 
         // DiscardBufferedData tells StreamReader to throw away its internal
@@ -293,7 +287,7 @@ namespace System.IO
         public bool EndOfStream {
             get {
                 if (stream == null)
-                    __Error.ReaderClosed();
+                    throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
                 CheckAsyncTaskInProgress();
 
@@ -306,10 +300,9 @@ namespace System.IO
             }
         }
 
-        [Pure]
         public override int Peek() {
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -322,7 +315,7 @@ namespace System.IO
         
         public override int Read() {
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -334,7 +327,7 @@ namespace System.IO
             return result;
         }
     
-        public override int Read([In, Out] char[] buffer, int index, int count)
+        public override int Read(char[] buffer, int index, int count)
         {
             if (buffer==null)
                 throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
@@ -342,10 +335,9 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -359,7 +351,7 @@ namespace System.IO
                 if (n == 0) break;  // We're at EOF
                 if (n > count) n = count;
                 if (!readToUserBuffer) {
-                    Buffer.InternalBlockCopy(charBuffer, charPos * 2, buffer, (index + charsRead) * 2, n*2);
+                    Buffer.BlockCopy(charBuffer, charPos * 2, buffer, (index + charsRead) * 2, n*2);
                     charPos += n;
                 }
                 charsRead += n;
@@ -377,7 +369,7 @@ namespace System.IO
         public override String ReadToEnd()
         {
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -392,7 +384,7 @@ namespace System.IO
             return GetStringAndReleaseSharedStringBuilder(sb);
         }
 
-        public override int ReadBlock([In, Out] char[] buffer, int index, int count)
+        public override int ReadBlock(char[] buffer, int index, int count)
         {
             if (buffer==null)
                 throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
@@ -400,10 +392,9 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -414,7 +405,7 @@ namespace System.IO
         private void CompressBuffer(int n)
         {
             Debug.Assert(byteLen >= n, "CompressBuffer was called with a number of bytes greater than the current buffer length.  Are two threads using this StreamReader at the same time?");
-            Buffer.InternalBlockCopy(byteBuffer, n, byteBuffer, 0, byteLen - n);
+            Buffer.BlockCopy(byteBuffer, n, byteBuffer, 0, byteLen - n);
             byteLen -= n;
         }
 
@@ -713,7 +704,7 @@ namespace System.IO
         public override String ReadLine()
         {
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -764,7 +755,7 @@ namespace System.IO
                 return base.ReadLineAsync();
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -843,7 +834,7 @@ namespace System.IO
                 return base.ReadToEndAsync();
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -876,7 +867,6 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();
 
             // If we have been inherited into a subclass, the following implementation could be incorrect
             // since it does not call through to Read() which a subclass might have overriden.  
@@ -886,7 +876,7 @@ namespace System.IO
                 return base.ReadAsync(buffer, index, count);
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -1037,7 +1027,7 @@ namespace System.IO
 
                 if (!readToUserBuffer)
                 {
-                    Buffer.InternalBlockCopy(charBuffer, charPos * 2, buffer, (index + charsRead) * 2, n * 2);
+                    Buffer.BlockCopy(charBuffer, charPos * 2, buffer, (index + charsRead) * 2, n * 2);
                     charPos += n;
                 }
 
@@ -1062,7 +1052,6 @@ namespace System.IO
                 throw new ArgumentOutOfRangeException((index < 0 ? nameof(index) : nameof(count)), SR.ArgumentOutOfRange_NeedNonNegNum);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
-            Contract.EndContractBlock();
 
             // If we have been inherited into a subclass, the following implementation could be incorrect
             // since it does not call through to Read() which a subclass might have overriden.  
@@ -1072,7 +1061,7 @@ namespace System.IO
                 return base.ReadBlockAsync(buffer, index, count);
 
             if (stream == null)
-                __Error.ReaderClosed();
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_ReaderClosed);
 
             CheckAsyncTaskInProgress();
 
@@ -1145,7 +1134,6 @@ namespace System.IO
         }
         #endregion
 
-        // No data, class doesn't need to be serializable.
         // Note this class is threadsafe.
         private class NullStreamReader : StreamReader
         {
@@ -1177,7 +1165,6 @@ namespace System.IO
                 return -1;
             }
 
-            [SuppressMessage("Microsoft.Contracts", "CC1055")]  // Skip extra error checking to avoid *potential* AppCompat problems.
             public override int Read(char[] buffer, int index, int count) {
                 return 0;
             }

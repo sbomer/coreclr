@@ -12,7 +12,6 @@
 **
 ===========================================================*/
 
-using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -23,7 +22,7 @@ namespace System
     [Serializable]
     [StructLayout(LayoutKind.Sequential)]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct Double : IComparable, IConvertible, IFormattable, IComparable<Double>, IEquatable<Double>
+    public struct Double : IComparable, IConvertible, IFormattable, IComparable<Double>, IEquatable<Double>, ISpanFormattable
     {
         private double m_value; // Do not rename (binary serialization)
 
@@ -44,7 +43,6 @@ namespace System
         internal const double NegativeZero = -0.0;
 
         /// <summary>Determines whether the specified value is finite (zero, subnormal, or normal).</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsFinite(double d)
@@ -54,7 +52,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is infinite.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsInfinity(double d)
@@ -64,7 +61,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is NaN.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsNaN(double d)
@@ -74,7 +70,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is negative.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe static bool IsNegative(double d)
@@ -84,7 +79,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is negative infinity.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsNegativeInfinity(double d)
@@ -93,7 +87,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is normal.</summary>
-        [Pure]
         [NonVersionable]
         // This is probably not worth inlining, it has branches and should be rarely called
         public unsafe static bool IsNormal(double d)
@@ -104,7 +97,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is positive infinity.</summary>
-        [Pure]
         [NonVersionable]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsPositiveInfinity(double d)
@@ -113,7 +105,6 @@ namespace System
         }
 
         /// <summary>Determines whether the specified value is subnormal.</summary>
-        [Pure]
         [NonVersionable]
         // This is probably not worth inlining, it has branches and should be rarely called
         public unsafe static bool IsSubnormal(double d)
@@ -244,48 +235,53 @@ namespace System
 
         public override String ToString()
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatDouble(m_value, null, NumberFormatInfo.CurrentInfo);
         }
 
         public String ToString(String format)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatDouble(m_value, format, NumberFormatInfo.CurrentInfo);
         }
 
         public String ToString(IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatDouble(m_value, null, NumberFormatInfo.GetInstance(provider));
         }
 
         public String ToString(String format, IFormatProvider provider)
         {
-            Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatDouble(m_value, format, NumberFormatInfo.GetInstance(provider));
+        }
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
+        {
+            return Number.TryFormatDouble(m_value, format, NumberFormatInfo.GetInstance(provider), destination, out charsWritten);
         }
 
         public static double Parse(String s)
         {
-            return Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseDouble(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo);
         }
 
         public static double Parse(String s, NumberStyles style)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return Parse(s, style, NumberFormatInfo.CurrentInfo);
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseDouble(s, style, NumberFormatInfo.CurrentInfo);
         }
 
         public static double Parse(String s, IFormatProvider provider)
         {
-            return Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseDouble(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.GetInstance(provider));
         }
 
         public static double Parse(String s, NumberStyles style, IFormatProvider provider)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return Parse(s, style, NumberFormatInfo.GetInstance(provider));
+            if (s == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            return Number.ParseDouble(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
         // Parses a double from a String in the given style.  If
@@ -295,13 +291,27 @@ namespace System
         // This method will not throw an OverflowException, but will return
         // PositiveInfinity or NegativeInfinity for a number that is too
         // large or too small.
-        //
-        private static double Parse(String s, NumberStyles style, NumberFormatInfo info)
+
+        public static double Parse(ReadOnlySpan<char> s, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null)
         {
-            return Number.ParseDouble(s, style, info);
+            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            return Number.ParseDouble(s, style, NumberFormatInfo.GetInstance(provider));
         }
 
+
+
         public static bool TryParse(String s, out double result)
+        {
+            if (s == null)
+            {
+                result = 0;
+                return false;
+            }
+
+            return TryParse((ReadOnlySpan<char>)s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo, out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, out double result)
         {
             return TryParse(s, NumberStyles.Float | NumberStyles.AllowThousands, NumberFormatInfo.CurrentInfo, out result);
         }
@@ -309,34 +319,44 @@ namespace System
         public static bool TryParse(String s, NumberStyles style, IFormatProvider provider, out double result)
         {
             NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
-            return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
-        }
 
-        private static bool TryParse(String s, NumberStyles style, NumberFormatInfo info, out double result)
-        {
             if (s == null)
             {
                 result = 0;
                 return false;
             }
+
+            return TryParse((ReadOnlySpan<char>)s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out double result)
+        {
+            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            return TryParse(s, style, NumberFormatInfo.GetInstance(provider), out result);
+        }
+
+        private static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, NumberFormatInfo info, out double result)
+        {
             bool success = Number.TryParseDouble(s, style, info, out result);
             if (!success)
             {
-                String sTrim = s.Trim();
-                if (sTrim.Equals(info.PositiveInfinitySymbol))
+                ReadOnlySpan<char> sTrim = StringSpanHelpers.Trim(s);
+                if (StringSpanHelpers.Equals(sTrim, info.PositiveInfinitySymbol))
                 {
                     result = PositiveInfinity;
                 }
-                else if (sTrim.Equals(info.NegativeInfinitySymbol))
+                else if (StringSpanHelpers.Equals(sTrim, info.NegativeInfinitySymbol))
                 {
                     result = NegativeInfinity;
                 }
-                else if (sTrim.Equals(info.NaNSymbol))
+                else if (StringSpanHelpers.Equals(sTrim, info.NaNSymbol))
                 {
                     result = NaN;
                 }
                 else
+                {
                     return false; // We really failed
+                }
             }
             return true;
         }

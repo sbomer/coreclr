@@ -113,9 +113,6 @@ DEFINE_CLASS_U(System,       AppDomainSetup,                 AppDomainSetupObjec
 DEFINE_FIELD_U(_Entries,                           AppDomainSetupObject,   m_Entries)
 DEFINE_FIELD_U(_AppBase,                           AppDomainSetupObject,   m_AppBase)
 DEFINE_FIELD_U(_CompatFlags,                       AppDomainSetupObject,   m_CompatFlags)
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-DEFINE_FIELD_U(_UseRandomizedStringHashing,        AppDomainSetupObject,   m_UseRandomizedStringHashing)
-#endif
 
 DEFINE_CLASS(ARG_ITERATOR,          System,                 ArgIterator)
 DEFINE_CLASS_U(System,              ArgIterator,            VARARGS)  // Includes a SigPointer.
@@ -163,7 +160,9 @@ DEFINE_FIELD_U(_Minor,                     VersionBaseObject,    m_Minor)
 DEFINE_FIELD_U(_Build,                     VersionBaseObject,    m_Build)
 DEFINE_FIELD_U(_Revision,                  VersionBaseObject,    m_Revision)
 DEFINE_CLASS(VERSION,               System,                 Version)
-DEFINE_METHOD(VERSION,              CTOR,                   .ctor,                      IM_Int_Int_Int_Int_RetVoid)
+DEFINE_METHOD(VERSION,              CTOR_Ix2,               .ctor,                      IM_Int_Int_RetVoid)
+DEFINE_METHOD(VERSION,              CTOR_Ix3,               .ctor,                      IM_Int_Int_Int_RetVoid)
+DEFINE_METHOD(VERSION,              CTOR_Ix4,               .ctor,                      IM_Int_Int_Int_Int_RetVoid)
 
 DEFINE_CLASS(ASSEMBLY_VERSION_COMPATIBILITY, Assemblies,    AssemblyVersionCompatibility)
 
@@ -225,9 +224,6 @@ DEFINE_CLASS(RUNTIME_CLASS,                  WinRT,         RuntimeClass)
 #endif // FEATURE_COMINTEROP
 
 DEFINE_CLASS_U(Interop,                CriticalHandle,             CriticalHandle)
-#ifdef _DEBUG
-DEFINE_FIELD_U(_stackTrace,                CriticalHandle,     m_debugStackTrace)
-#endif
 DEFINE_FIELD_U(handle,                     CriticalHandle,     m_handle)
 DEFINE_FIELD_U(_isClosed,                  CriticalHandle,     m_isClosed)
 DEFINE_CLASS(CRITICAL_HANDLE,       Interop,                CriticalHandle)
@@ -366,7 +362,6 @@ DEFINE_CLASS(EVENT_INFO,            Reflection,             EventInfo)
 DEFINE_CLASS_U(System,                 Exception,      ExceptionObject)
 DEFINE_FIELD_U(_className,         ExceptionObject,    _className)
 DEFINE_FIELD_U(_exceptionMethod,   ExceptionObject,    _exceptionMethod)
-DEFINE_FIELD_U(_exceptionMethodString,ExceptionObject, _exceptionMethodString)
 DEFINE_FIELD_U(_message,           ExceptionObject,    _message)
 DEFINE_FIELD_U(_data,              ExceptionObject,    _data)
 DEFINE_FIELD_U(_innerException,    ExceptionObject,    _innerException)
@@ -763,23 +758,25 @@ DEFINE_METHOD(RUNTIME_HELPERS,      IS_REFERENCE_OR_CONTAINS_REFERENCES, IsRefer
 
 DEFINE_CLASS(JIT_HELPERS,           CompilerServices,       JitHelpers)
 #ifdef _DEBUG
-DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST,            UnsafeCastInternal, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST,       UnsafeEnumCastInternal, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST_LONG,  UnsafeEnumCastLongInternal, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST_TO_STACKPTR,UnsafeCastToStackPointerInternal, NoSig)
 #else // _DEBUG
-DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST,            UnsafeCast, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST,       UnsafeEnumCast, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST_LONG,  UnsafeEnumCastLong, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST_TO_STACKPTR,UnsafeCastToStackPointer, NoSig)
 #endif // _DEBUG
 DEFINE_METHOD(JIT_HELPERS,          GET_RAW_SZ_ARRAY_DATA,  GetRawSzArrayData, NoSig)
 
-DEFINE_CLASS(UNSAFE,                CompilerServices,       Unsafe)
+DEFINE_CLASS(UNSAFE,                InternalCompilerServices,       Unsafe)
 DEFINE_METHOD(UNSAFE,               AS_POINTER,             AsPointer, NoSig)
+DEFINE_METHOD(UNSAFE,               AS_REF,                 AsRef, NoSig)
 DEFINE_METHOD(UNSAFE,               SIZEOF,                 SizeOf, NoSig)
-DEFINE_METHOD(UNSAFE,               BYREF_AS,               As, NoSig)
-DEFINE_METHOD(UNSAFE,               BYREF_ADD,              Add, NoSig)
+DEFINE_METHOD(UNSAFE,               BYREF_AS,               As, GM_RefTFrom_RetRefTTo)
+DEFINE_METHOD(UNSAFE,               OBJECT_AS,              As, GM_Obj_RetT)
+DEFINE_METHOD(UNSAFE,               BYREF_ADD,              Add, GM_RefT_Int_RetRefT)
+DEFINE_METHOD(UNSAFE,               PTR_ADD,                Add, GM_PtrVoid_Int_RetPtrVoid)
+DEFINE_METHOD(UNSAFE,               BYREF_BYTE_OFFSET,      ByteOffset, NoSig)
 DEFINE_METHOD(UNSAFE,               BYREF_ADD_BYTE_OFFSET,  AddByteOffset, NoSig)
 DEFINE_METHOD(UNSAFE,               BYREF_ARE_SAME,         AreSame, NoSig)
 DEFINE_METHOD(UNSAFE,               BYREF_INIT_BLOCK_UNALIGNED, InitBlockUnaligned, NoSig)
@@ -800,7 +797,7 @@ DEFINE_FIELD(ARRAY_PINNING_HELPER,  M_ARRAY_DATA,           m_arrayData)
 
 DEFINE_CLASS(RUNTIME_WRAPPED_EXCEPTION, CompilerServices,   RuntimeWrappedException)
 DEFINE_METHOD(RUNTIME_WRAPPED_EXCEPTION, OBJ_CTOR,          .ctor,                      IM_Obj_RetVoid)
-DEFINE_FIELD(RUNTIME_WRAPPED_EXCEPTION, WRAPPED_EXCEPTION,  m_wrappedException)
+DEFINE_FIELD(RUNTIME_WRAPPED_EXCEPTION, WRAPPED_EXCEPTION,  _wrappedException)
 
 DEFINE_CLASS_U(Interop,                SafeHandle,         SafeHandle)
 DEFINE_FIELD_U(handle,                     SafeHandle,            m_handle)
@@ -828,7 +825,6 @@ DEFINE_CLASS_U(Diagnostics,                StackFrameHelper,   StackFrameHelper)
 DEFINE_FIELD_U(targetThread,               StackFrameHelper,   targetThread)
 DEFINE_FIELD_U(rgiOffset,                  StackFrameHelper,   rgiOffset)
 DEFINE_FIELD_U(rgiILOffset,                StackFrameHelper,   rgiILOffset)
-DEFINE_FIELD_U(rgMethodBase,               StackFrameHelper,   rgMethodBase)
 DEFINE_FIELD_U(dynamicMethods,             StackFrameHelper,   dynamicMethods)
 DEFINE_FIELD_U(rgMethodHandle,             StackFrameHelper,   rgMethodHandle)
 DEFINE_FIELD_U(rgAssemblyPath,             StackFrameHelper,   rgAssemblyPath)
@@ -843,9 +839,6 @@ DEFINE_FIELD_U(rgiColumnNumber,            StackFrameHelper,   rgiColumnNumber)
 DEFINE_FIELD_U(rgiLastFrameFromForeignExceptionStackTrace,            StackFrameHelper,   rgiLastFrameFromForeignExceptionStackTrace)
 DEFINE_FIELD_U(getSourceLineInfo,          StackFrameHelper,   getSourceLineInfo)
 DEFINE_FIELD_U(iFrameCount,                StackFrameHelper,   iFrameCount)
-
-DEFINE_CLASS(STACK_TRACE,           Diagnostics,            StackTrace)
-DEFINE_METHOD(STACK_TRACE,          GET_MANAGED_STACK_TRACE_HELPER, GetManagedStackTraceStringHelper, SM_Bool_RetStr)
 
 DEFINE_CLASS(STREAM,                IO,                     Stream)
 DEFINE_METHOD(STREAM,               BEGIN_READ,             BeginRead,  IM_ArrByte_Int_Int_AsyncCallback_Object_RetIAsyncResult)
@@ -934,7 +927,7 @@ DEFINE_CLASS(TP_WAIT_CALLBACK,         Threading,              _ThreadPoolWaitCa
 DEFINE_METHOD(TP_WAIT_CALLBACK,        PERFORM_WAIT_CALLBACK,               PerformWaitCallback,                   SM_RetBool)
 
 DEFINE_CLASS(TIMER_QUEUE,           Threading,                TimerQueue)
-DEFINE_METHOD(TIMER_QUEUE,          APPDOMAIN_TIMER_CALLBACK, AppDomainTimerCallback,   SM_RetVoid)
+DEFINE_METHOD(TIMER_QUEUE,          APPDOMAIN_TIMER_CALLBACK, AppDomainTimerCallback,   SM_Int_RetVoid)
 
 DEFINE_CLASS(TIMESPAN,              System,                 TimeSpan)
 
@@ -965,6 +958,8 @@ DEFINE_CLASS(UNKNOWN_WRAPPER,       Interop,                UnknownWrapper)
 #endif
 
 DEFINE_CLASS(VALUE_TYPE,            System,                 ValueType)
+DEFINE_METHOD(VALUE_TYPE,           GET_HASH_CODE,          GetHashCode,            IM_RetInt)
+DEFINE_METHOD(VALUE_TYPE,           EQUALS,                 Equals,                 IM_Obj_RetBool)
 
 #ifdef FEATURE_COMINTEROP
 DEFINE_CLASS(VARIANT_WRAPPER,       Interop,                VariantWrapper)
@@ -1419,9 +1414,9 @@ DEFINE_CLASS(LOADERALLOCATORSCOUT,      Reflection,             LoaderAllocatorS
 DEFINE_CLASS(CONTRACTEXCEPTION,     CodeContracts,  ContractException)
 
 DEFINE_CLASS_U(CodeContracts,       ContractException,          ContractExceptionObject)
-DEFINE_FIELD_U(_Kind,               ContractExceptionObject,    _Kind)
-DEFINE_FIELD_U(_UserMessage,        ContractExceptionObject,    _UserMessage)
-DEFINE_FIELD_U(_Condition,          ContractExceptionObject,    _Condition)
+DEFINE_FIELD_U(_kind,               ContractExceptionObject,    _Kind)
+DEFINE_FIELD_U(_userMessage,        ContractExceptionObject,    _UserMessage)
+DEFINE_FIELD_U(_condition,          ContractExceptionObject,    _Condition)
 
 #ifdef FEATURE_COMINTEROP
 DEFINE_CLASS(ASYNC_TRACING_EVENT_ARGS,       WindowsFoundationDiag,         TracingStatusChangedEventArgs)
@@ -1447,6 +1442,15 @@ DEFINE_METHOD(CUTF8MARSHALER, CLEAR_NATIVE, ClearNative, SM_IntPtr_RetVoid)
 DEFINE_CLASS(UTF8BUFFERMARSHALER, StubHelpers, UTF8BufferMarshaler)
 DEFINE_METHOD(UTF8BUFFERMARSHALER, CONVERT_TO_NATIVE, ConvertToNative, NoSig)
 DEFINE_METHOD(UTF8BUFFERMARSHALER, CONVERT_TO_MANAGED, ConvertToManaged, NoSig)
+
+// Classes referenced in EqualityComparer<T>.Default optimization
+
+DEFINE_CLASS(BYTE_EQUALITYCOMPARER, CollectionsGeneric, ByteEqualityComparer)
+DEFINE_CLASS(ENUM_EQUALITYCOMPARER, CollectionsGeneric, EnumEqualityComparer`1)
+DEFINE_CLASS(LONG_ENUM_EQUALITYCOMPARER, CollectionsGeneric, LongEnumEqualityComparer`1)
+DEFINE_CLASS(NULLABLE_EQUALITYCOMPARER, CollectionsGeneric, NullableEqualityComparer`1)
+DEFINE_CLASS(GENERIC_EQUALITYCOMPARER, CollectionsGeneric, GenericEqualityComparer`1)
+DEFINE_CLASS(OBJECT_EQUALITYCOMPARER, CollectionsGeneric, ObjectEqualityComparer`1)
 
 #undef DEFINE_CLASS
 #undef DEFINE_METHOD

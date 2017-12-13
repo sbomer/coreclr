@@ -22,7 +22,6 @@ namespace System.Threading
     using System.Reflection;
     using System.Security;
     using System.Diagnostics;
-    using System.Diagnostics.Contracts;
     using System.Diagnostics.CodeAnalysis;
 
 
@@ -36,12 +35,11 @@ namespace System.Threading
 #if FEATURE_COMINTEROP && FEATURE_APPX
     //
     // This is implemented in System.Runtime.WindowsRuntime, allowing us to ask that assembly for a WinRT-specific SyncCtx.
-    // I'd like this to be an interface, or at least an abstract class - but neither seems to play nice with FriendAccessAllowed.
     //
-    [FriendAccessAllowed]
-    internal class WinRTSynchronizationContextFactoryBase
+    // [FriendAccessAllowed]
+    internal abstract class WinRTSynchronizationContextFactoryBase
     {
-        public virtual SynchronizationContext Create(object coreDispatcher) { return null; }
+        public abstract SynchronizationContext Create(object coreDispatcher);
     }
 #endif //FEATURE_COMINTEROP
 
@@ -143,7 +141,6 @@ namespace System.Threading
             {
                 throw new ArgumentNullException(nameof(waitHandles));
             }
-            Contract.EndContractBlock();
 
             return WaitHelperNative(waitHandles, waitAll, millisecondsTimeout);
         }
@@ -171,16 +168,6 @@ namespace System.Threading
 #endif
 
                 return context;
-            }
-        }
-
-        // Get the last SynchronizationContext that was set explicitly (not flowed via ExecutionContext.Capture/Run)        
-        internal static SynchronizationContext CurrentNoFlow
-        {
-            [FriendAccessAllowed]
-            get
-            {
-                return Current; // SC never flows
             }
         }
 
@@ -226,7 +213,6 @@ namespace System.Threading
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         [return: MarshalAs(UnmanagedType.Interface)]
         private static extern object GetWinRTDispatcherForCurrentThread();
 #endif //FEATURE_APPX

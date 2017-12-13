@@ -12,8 +12,7 @@
 ** 
 ===========================================================*/
 
-using System.Diagnostics.Contracts;
-using System.Globalization;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
 
@@ -97,6 +96,24 @@ namespace System
             return ToString();
         }
 
+        public bool TryFormat(Span<char> destination, out int charsWritten)
+        {
+            string s = m_value ? TrueLiteral : FalseLiteral;
+
+            if (s.Length <= destination.Length)
+            {
+                bool copied = s.AsReadOnlySpan().TryCopyTo(destination);
+                Debug.Assert(copied);
+                charsWritten = s.Length;
+                return true;
+            }
+            else
+            {
+                charsWritten = 0;
+                return false;
+            }
+        }
+
         // Determines whether two Boolean objects are equal.
         public override bool Equals(Object obj)
         {
@@ -166,35 +183,36 @@ namespace System
         public static Boolean Parse(String value)
         {
             if (value == null) throw new ArgumentNullException(nameof(value));
-            Contract.EndContractBlock();
-            Boolean result = false;
-            if (!TryParse(value, out result))
-            {
-                throw new FormatException(SR.Format_BadBoolean);
-            }
-            else
-            {
-                return result;
-            }
+            return Parse(value.AsReadOnlySpan());
         }
+
+        public static bool Parse(ReadOnlySpan<char> value) =>
+            TryParse(value, out bool result) ? result : throw new FormatException(SR.Format_BadBoolean);
 
         // Determines whether a String represents true or false.
         // 
         public static Boolean TryParse(String value, out Boolean result)
         {
-            result = false;
             if (value == null)
             {
+                result = false;
                 return false;
             }
-            // For perf reasons, let's first see if they're equal, then do the
-            // trim to get rid of white space, and check again.
-            if (TrueLiteral.Equals(value, StringComparison.OrdinalIgnoreCase))
+
+            return TryParse(value.AsReadOnlySpan(), out result);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> value, out bool result)
+        {
+            ReadOnlySpan<char> trueSpan = TrueLiteral.AsReadOnlySpan();
+            if (StringSpanHelpers.Equals(trueSpan, value, StringComparison.OrdinalIgnoreCase))
             {
                 result = true;
                 return true;
             }
-            if (FalseLiteral.Equals(value, StringComparison.OrdinalIgnoreCase))
+
+            ReadOnlySpan<char> falseSpan = FalseLiteral.AsReadOnlySpan();
+            if (StringSpanHelpers.Equals(falseSpan, value, StringComparison.OrdinalIgnoreCase))
             {
                 result = false;
                 return true;
@@ -203,27 +221,27 @@ namespace System
             // Special case: Trim whitespace as well as null characters.
             value = TrimWhiteSpaceAndNull(value);
 
-            if (TrueLiteral.Equals(value, StringComparison.OrdinalIgnoreCase))
+            if (StringSpanHelpers.Equals(trueSpan, value, StringComparison.OrdinalIgnoreCase))
             {
                 result = true;
                 return true;
             }
 
-            if (FalseLiteral.Equals(value, StringComparison.OrdinalIgnoreCase))
+            if (StringSpanHelpers.Equals(falseSpan, value, StringComparison.OrdinalIgnoreCase))
             {
                 result = false;
                 return true;
             }
 
+            result = false;
             return false;
         }
 
-        private static String TrimWhiteSpaceAndNull(String value)
+        private static ReadOnlySpan<char> TrimWhiteSpaceAndNull(ReadOnlySpan<char> value)
         {
-            int start = 0;
-            int end = value.Length - 1;
-            char nullChar = (char)0x0000;
+            const char nullChar = (char)0x0000;
 
+            int start = 0;
             while (start < value.Length)
             {
                 if (!Char.IsWhiteSpace(value[start]) && value[start] != nullChar)
@@ -233,6 +251,7 @@ namespace System
                 start++;
             }
 
+            int end = value.Length - 1;
             while (end >= start)
             {
                 if (!Char.IsWhiteSpace(value[end]) && value[end] != nullChar)
@@ -242,7 +261,7 @@ namespace System
                 end--;
             }
 
-            return value.Substring(start, end - start + 1);
+            return value.Slice(start, end - start + 1);
         }
 
         //

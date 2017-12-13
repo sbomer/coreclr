@@ -58,6 +58,20 @@ extern "C" void __stdcall jitStartup(ICorJitHost* jitHost)
 {
     if (g_jitInitialized)
     {
+        if (jitHost != g_jitHost)
+        {
+            // We normally don't expect jitStartup() to be invoked more than once.
+            // (We check whether it has been called once due to an abundance of caution.)
+            // However, during SuperPMI playback of MCH file, we need to JIT many different methods.
+            // Each one carries its own environment configuration state.
+            // So, we need the JIT to reload the JitConfig state for each change in the environment state of the
+            // replayed compilations.
+            // We do this by calling jitStartup with a different ICorJitHost,
+            // and have the JIT re-initialize its JitConfig state when this happens.
+            JitConfig.destroy(g_jitHost);
+            JitConfig.initialize(jitHost);
+            g_jitHost = jitHost;
+        }
         return;
     }
 
@@ -191,9 +205,6 @@ ICorJitCompiler* __stdcall getJit()
 // Information kept in thread-local storage. This is used in the noway_assert exceptional path.
 // If you are using it more broadly in retail code, you would need to understand the
 // performance implications of accessing TLS.
-//
-// If the JIT is being statically linked, these methods must be implemented by the consumer.
-#if !defined(FEATURE_MERGE_JIT_AND_ENGINE) || !defined(FEATURE_IMPLICIT_TLS)
 
 __declspec(thread) void* gJitTls = nullptr;
 
@@ -206,15 +217,6 @@ void SetJitTls(void* value)
 {
     gJitTls = value;
 }
-
-#else // !defined(FEATURE_MERGE_JIT_AND_ENGINE) || !defined(FEATURE_IMPLICIT_TLS)
-
-extern "C" {
-void* GetJitTls();
-void SetJitTls(void* value);
-}
-
-#endif // // defined(FEATURE_MERGE_JIT_AND_ENGINE) && defined(FEATURE_IMPLICIT_TLS)
 
 #if defined(DEBUG)
 
@@ -325,8 +327,6 @@ void CILJit::clearCache(void)
  */
 BOOL CILJit::isCacheCleanupRequired(void)
 {
-    BOOL doCleanup;
-
     if (g_realJitCompiler != nullptr)
     {
         if (g_realJitCompiler->isCacheCleanupRequired())
@@ -382,8 +382,7 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
     jitFlags.SetFromFlags(cpuCompileFlags);
 
 #ifdef FEATURE_SIMD
-#ifdef _TARGET_XARCH_
-#ifdef FEATURE_AVX_SUPPORT
+#if defined(_TARGET_XARCH_) && !defined(LEGACY_BACKEND)
     if (!jitFlags.IsSet(JitFlags::JIT_FLAG_PREJIT) && jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD) &&
         jitFlags.IsSet(JitFlags::JIT_FLAG_USE_AVX2))
     {
@@ -396,13 +395,12 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
             return 32;
         }
     }
-#endif // FEATURE_AVX_SUPPORT
+#endif // !(defined(_TARGET_XARCH_) && !defined(LEGACY_BACKEND))
     if (GetJitTls() != nullptr && JitTls::GetCompiler() != nullptr)
     {
         JITDUMP("getMaxIntrinsicSIMDVectorLength: returning 16\n");
     }
     return 16;
-#endif // _TARGET_XARCH_
 #else  // !FEATURE_SIMD
     if (GetJitTls() != nullptr && JitTls::GetCompiler() != nullptr)
     {
@@ -508,7 +506,7 @@ GenTreePtr Compiler::eeGetPInvokeCookie(CORINFO_SIG_INFO* szMetaSig)
     cookie = info.compCompHnd->GetCookieForPInvokeCalliSig(szMetaSig, &pCookie);
     assert((cookie == nullptr) != (pCookie == nullptr));
 
-    return gtNewIconEmbHndNode(cookie, pCookie, GTF_ICON_PINVKI_HDL);
+    return gtNewIconEmbHndNode(cookie, pCookie, GTF_ICON_PINVKI_HDL, szMetaSig);
 }
 
 //------------------------------------------------------------------------
@@ -722,7 +720,7 @@ void Compiler::eeGetVars()
     {
         // Allocate a bit-array for all the variables and initialize to false
 
-        bool*    varInfoProvided = (bool*)compGetMemA(info.compLocalsCount * sizeof(varInfoProvided[0]));
+        bool*    varInfoProvided = (bool*)compGetMem(info.compLocalsCount * sizeof(varInfoProvided[0]));
         unsigned i;
         for (i = 0; i < info.compLocalsCount; i++)
         {

@@ -12,9 +12,9 @@ using System.Threading;
 using System.Runtime;
 using System.Runtime.Versioning;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 using System.Security;
+using Internal.Runtime.CompilerServices;
 
 namespace System.Runtime.CompilerServices
 {
@@ -67,7 +67,6 @@ namespace System.Runtime.CompilerServices
         public byte m_arrayData;
     }
 
-    [FriendAccessAllowed]
     internal static class JitHelpers
     {
         // The special dll name to be used for DllImport of QCalls
@@ -94,24 +93,7 @@ namespace System.Runtime.CompilerServices
             return new StackCrawlMarkHandle(UnsafeCastToStackPointer(ref stackMark));
         }
 
-#if _DEBUG
-        [FriendAccessAllowed]
-        static internal T UnsafeCast<T>(Object o) where T : class
-        {
-            T ret = UnsafeCastInternal<T>(o);
-            Debug.Assert(ret == (o as T), "Invalid use of JitHelpers.UnsafeCast!");
-            return ret;
-        }
-
-        // The IL body of this method is not critical, but its body will be replaced with unsafe code, so
-        // this method is effectively critical
-        static private T UnsafeCastInternal<T>(Object o) where T : class
-        {
-            // The body of this function will be replaced by the EE with unsafe code that just returns o!!!
-            // See getILIntrinsicImplementation for how this happens.  
-            throw new InvalidOperationException();
-        }
-
+#if DEBUG
         static internal int UnsafeEnumCast<T>(T val) where T : struct		// Actually T must be 4 byte (or less) enum
         {
             Debug.Assert(typeof(T).IsEnum
@@ -163,16 +145,7 @@ namespace System.Runtime.CompilerServices
             // See getILIntrinsicImplementation for how this happens.  
             throw new InvalidOperationException();
         }
-#else // _DEBUG
-        // The IL body of this method is not critical, but its body will be replaced with unsafe code, so
-        // this method is effectively critical
-        [FriendAccessAllowed]
-        static internal T UnsafeCast<T>(Object o) where T : class
-        {
-            // The body of this function will be replaced by the EE with unsafe code that just returns o!!!
-            // See getILIntrinsicImplementation for how this happens.  
-            throw new InvalidOperationException();
-        }
+#else // DEBUG
 
         static internal int UnsafeEnumCast<T>(T val) where T : struct		// Actually T must be 4 byte (or less) enum
         {
@@ -194,7 +167,7 @@ namespace System.Runtime.CompilerServices
             // See getILIntrinsicImplementation for how this happens.  
             throw new InvalidOperationException();
         }
-#endif // _DEBUG
+#endif // DEBUG
 
         // Set the given element in the array without any type or range checks
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
@@ -203,15 +176,10 @@ namespace System.Runtime.CompilerServices
         // Used for unsafe pinning of arbitrary objects.
         static internal PinningHelper GetPinningHelper(Object o)
         {
-            // This cast is really unsafe - call the private version that does not assert in debug
-#if _DEBUG
-            return UnsafeCastInternal<PinningHelper>(o);
-#else
-            return UnsafeCast<PinningHelper>(o);
-#endif
+            return Unsafe.As<PinningHelper>(o);
         }
 
-#if _DEBUG
+#if DEBUG
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern static bool IsAddressInStack(IntPtr ptr);
 #endif

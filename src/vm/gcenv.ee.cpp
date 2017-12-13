@@ -409,67 +409,6 @@ DWORD WINAPI BackgroundThreadStub(void* arg)
     return result;
 }
 
-Thread* GCToEEInterface::CreateBackgroundThread(GCBackgroundThreadFunction threadStart, void* arg)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_TRIGGERS;
-    }
-    CONTRACTL_END;
-
-    BackgroundThreadStubArgs threadStubArgs;
-
-    threadStubArgs.arg = arg;
-    threadStubArgs.thread = NULL;
-    threadStubArgs.threadStart = threadStart;
-    threadStubArgs.hasStarted = false;
-
-    if (!threadStubArgs.threadStartedEvent.CreateAutoEventNoThrow(FALSE))
-    {
-        return NULL;
-    }
-
-    EX_TRY
-    {
-        threadStubArgs.thread = SetupUnstartedThread(FALSE);
-    }
-    EX_CATCH
-    {
-    }
-    EX_END_CATCH(SwallowAllExceptions);
-
-    if (threadStubArgs.thread == NULL)
-    {
-        threadStubArgs.threadStartedEvent.CloseEvent();
-        return NULL;
-    }
-
-    if (threadStubArgs.thread->CreateNewThread(0, (LPTHREAD_START_ROUTINE)BackgroundThreadStub, &threadStubArgs))
-    {
-        threadStubArgs.thread->SetBackground (TRUE, FALSE);
-        threadStubArgs.thread->StartThread();
-
-        // Wait for the thread to be in its main loop
-        uint32_t res = threadStubArgs.threadStartedEvent.Wait(INFINITE, FALSE);
-        threadStubArgs.threadStartedEvent.CloseEvent();
-        _ASSERTE(res == WAIT_OBJECT_0);
-
-        if (!threadStubArgs.hasStarted)
-        {
-            // The thread has failed to start and the Thread object was destroyed in the Thread::HasStarted
-            // failure code path.
-            return NULL;
-        }
-
-        return threadStubArgs.thread;
-    }
-
-    // Destroy the Thread object
-    threadStubArgs.thread->DecExternalCount(FALSE);
-    return NULL;
-}
-
 //
 // Diagnostics code
 //
@@ -843,6 +782,9 @@ void GCToEEInterface::DiagWalkBGCSurvivors(void* gcContext)
 
 void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
 {
+    int stompWBCompleteActions = SWB_PASS;
+    bool is_runtime_suspended = false;
+
     assert(args != nullptr);
     switch (args->operation)
     {
@@ -861,14 +803,14 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
 #endif
 
 #ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-        if (args->write_watch_table != nullptr)
+        if (g_sw_ww_enabled_for_gc_heap && (args->write_watch_table != nullptr))
         {
             assert(args->is_runtime_suspended);
             g_sw_ww_table = args->write_watch_table;
         }
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
 
-        ::StompWriteBarrierResize(args->is_runtime_suspended, args->requires_upper_bounds_check);
+        stompWBCompleteActions |= ::StompWriteBarrierResize(args->is_runtime_suspended, args->requires_upper_bounds_check);
 
         // We need to make sure that other threads executing checked write barriers
         // will see the g_card_table update before g_lowest/highest_address updates.
@@ -884,19 +826,45 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         // "cross-modifying code": We need all _executing_ threads to invalidate
         // their instruction cache, which FlushProcessWriteBuffers achieves by sending
         // an IPI (inter-process interrupt).
-        FlushProcessWriteBuffers();
+
+        if (stompWBCompleteActions & SWB_ICACHE_FLUSH)
+        {
+            // flushing icache on current processor (thread)
+            ::FlushWriteBarrierInstructionCache();
+            // asking other processors (threads) to invalidate their icache
+            FlushProcessWriteBuffers();
+        }
 
         g_lowest_address = args->lowest_address;
         VolatileStore(&g_highest_address, args->highest_address);
-        return;
+
+#if defined(_ARM64_)
+        // Need to reupdate for changes to g_highest_address g_lowest_address
+        is_runtime_suspended = (stompWBCompleteActions & SWB_EE_RESTART) || args->is_runtime_suspended;
+        stompWBCompleteActions |= ::StompWriteBarrierResize(is_runtime_suspended, args->requires_upper_bounds_check);
+
+        is_runtime_suspended = (stompWBCompleteActions & SWB_EE_RESTART) || args->is_runtime_suspended;
+        if(!is_runtime_suspended)
+        {
+            // If runtime is not suspended, force updated state to be visible to all threads
+            MemoryBarrier();
+        }
+#endif
+        if (stompWBCompleteActions & SWB_EE_RESTART)
+        {
+            assert(!args->is_runtime_suspended &&
+                "if runtime was suspended in patching routines then it was in running state at begining");
+            ThreadSuspend::RestartEE(FALSE, TRUE);
+        }
+        return; // unlike other branches we have already done cleanup so bailing out here
     case WriteBarrierOp::StompEphemeral:
         // StompEphemeral requires a new ephemeral low and a new ephemeral high
         assert(args->ephemeral_low != nullptr);
         assert(args->ephemeral_high != nullptr);
         g_ephemeral_low = args->ephemeral_low;
         g_ephemeral_high = args->ephemeral_high;
-        ::StompWriteBarrierEphemeral(args->is_runtime_suspended);
-        return;
+        stompWBCompleteActions |= ::StompWriteBarrierEphemeral(args->is_runtime_suspended);
+        break;
     case WriteBarrierOp::Initialize:
         // This operation should only be invoked once, upon initialization.
         assert(g_card_table == nullptr);
@@ -916,12 +884,10 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         assert(g_card_bundle_table == nullptr);
         g_card_bundle_table = args->card_bundle_table;
 #endif
-
-        FlushProcessWriteBuffers();
         
         g_lowest_address = args->lowest_address;
-        VolatileStore(&g_highest_address, args->highest_address);
-        ::StompWriteBarrierResize(true, false);
+        g_highest_address = args->highest_address;
+        stompWBCompleteActions |= ::StompWriteBarrierResize(true, false);
 
         // StompWriteBarrierResize does not necessarily bash g_ephemeral_low
         // usages, so we must do so here. This is particularly true on x86,
@@ -929,30 +895,41 @@ void GCToEEInterface::StompWriteBarrier(WriteBarrierParameters* args)
         // called with the parameters (true, false), as it is above.
         g_ephemeral_low = args->ephemeral_low;
         g_ephemeral_high = args->ephemeral_high;
-        ::StompWriteBarrierEphemeral(true);
-        return;
+        stompWBCompleteActions |= ::StompWriteBarrierEphemeral(true);
+        break;
     case WriteBarrierOp::SwitchToWriteWatch:
 #ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
         assert(args->write_watch_table != nullptr);
         assert(args->is_runtime_suspended && "the runtime must be suspended here!");
         g_sw_ww_table = args->write_watch_table;
         g_sw_ww_enabled_for_gc_heap = true;
-        ::SwitchToWriteWatchBarrier(true);
+        stompWBCompleteActions |= ::SwitchToWriteWatchBarrier(true);
 #else
         assert(!"should never be called without FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP");
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-        return;
+        break;
     case WriteBarrierOp::SwitchToNonWriteWatch:
 #ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
         assert(args->is_runtime_suspended && "the runtime must be suspended here!");
+        g_sw_ww_table = 0;
         g_sw_ww_enabled_for_gc_heap = false;
-        ::SwitchToNonWriteWatchBarrier(true);
+        stompWBCompleteActions |= ::SwitchToNonWriteWatchBarrier(true);
 #else
         assert(!"should never be called without FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP");
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
-        return;
+        break;
     default:
         assert(!"unknown WriteBarrierOp enum");
+    }
+    if (stompWBCompleteActions & SWB_ICACHE_FLUSH) 
+    {
+        ::FlushWriteBarrierInstructionCache();
+    }
+    if (stompWBCompleteActions & SWB_EE_RESTART) 
+    {
+        assert(!args->is_runtime_suspended && 
+            "if runtime was suspended in patching routines then it was in running state at begining");
+        ThreadSuspend::RestartEE(FALSE, TRUE);
     }
 }
 
@@ -1130,4 +1107,203 @@ bool GCToEEInterface::GetStringConfigValue(const char* key, const char** value)
 void GCToEEInterface::FreeStringConfigValue(const char* value)
 {
     delete [] value;
+}
+
+bool GCToEEInterface::IsGCThread()
+{
+    return !!::IsGCThread();
+}
+
+bool GCToEEInterface::WasCurrentThreadCreatedByGC()
+{
+    return !!::IsGCSpecialThread();
+}
+
+struct SuspendableThreadStubArguments
+{
+    void* Argument;
+    void (*ThreadStart)(void*);
+    Thread* Thread;
+    bool HasStarted;
+    CLREvent ThreadStartedEvent;
+};
+
+struct ThreadStubArguments
+{
+    void* Argument;
+    void (*ThreadStart)(void*);
+    HANDLE Thread;
+    bool HasStarted;
+    CLREvent ThreadStartedEvent;
+};
+
+namespace
+{
+    const size_t MaxThreadNameSize = 255;
+
+    bool CreateSuspendableThread(
+        void (*threadStart)(void*),
+        void* argument,
+        const char* name)
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        SuspendableThreadStubArguments args;
+        args.Argument = argument;
+        args.ThreadStart = threadStart;
+        args.Thread = nullptr;
+        args.HasStarted = false;
+        if (!args.ThreadStartedEvent.CreateAutoEventNoThrow(FALSE))
+        {
+            return false;
+        }
+
+        EX_TRY
+        {
+            args.Thread = SetupUnstartedThread(FALSE);
+        }
+        EX_CATCH
+        {
+        }
+        EX_END_CATCH(SwallowAllExceptions)
+
+        if (!args.Thread)
+        {
+            args.ThreadStartedEvent.CloseEvent();
+            return false;
+        }
+
+        auto threadStub = [](void* argument) -> DWORD
+        {
+            SuspendableThreadStubArguments* args = static_cast<SuspendableThreadStubArguments*>(argument);
+            assert(args != nullptr);
+
+            ClrFlsSetThreadType(ThreadType_GC);
+            args->Thread->SetGCSpecial(true);
+            STRESS_LOG_RESERVE_MEM(GC_STRESSLOG_MULTIPLY);
+            args->HasStarted = !!args->Thread->HasStarted(false);
+
+            Thread* thread = args->Thread;
+            auto threadStart = args->ThreadStart;
+            void* threadArgument = args->Argument;
+            bool hasStarted = args->HasStarted;
+            args->ThreadStartedEvent.Set();
+
+            // The stubArgs cannot be used once the event is set, since that releases wait on the
+            // event in the function that created this thread and the stubArgs go out of scope.
+            if (hasStarted)
+            {
+                threadStart(threadArgument);
+                DestroyThread(thread);
+            }
+
+            return 0;
+        };
+
+        InlineSString<MaxThreadNameSize> wideName;
+        const WCHAR* namePtr;
+        EX_TRY
+        {
+            if (name != nullptr)
+            {
+                wideName.SetUTF8(name);
+                namePtr = wideName.GetUnicode();
+            }
+        }
+        EX_CATCH
+        {
+            // we're not obligated to provide a name - if it's not valid,
+            // just report nullptr as the name.
+            namePtr = nullptr;
+        }
+        EX_END_CATCH(SwallowAllExceptions)
+
+        if (!args.Thread->CreateNewThread(0, threadStub, &args, namePtr))
+        {
+            args.Thread->DecExternalCount(FALSE);
+            args.ThreadStartedEvent.CloseEvent();
+            return false;
+        }
+
+        args.Thread->SetBackground(TRUE, FALSE);
+        args.Thread->StartThread();
+
+        // Wait for the thread to be in its main loop
+        uint32_t res = args.ThreadStartedEvent.Wait(INFINITE, FALSE);
+        args.ThreadStartedEvent.CloseEvent();
+        _ASSERTE(res == WAIT_OBJECT_0);
+
+        if (!args.HasStarted)
+        {
+            // The thread has failed to start and the Thread object was destroyed in the Thread::HasStarted
+            // failure code path.
+            return false;
+        }
+
+        return true;
+    }
+
+    bool CreateNonSuspendableThread(
+        void (*threadStart)(void*),
+        void* argument,
+        const char* name)
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        ThreadStubArguments args;
+        args.Argument = argument;
+        args.ThreadStart = threadStart;
+        args.Thread = INVALID_HANDLE_VALUE;
+        if (!args.ThreadStartedEvent.CreateAutoEventNoThrow(FALSE))
+        {
+            return false;
+        }
+
+        auto threadStub = [](void* argument) -> DWORD
+        {
+            ThreadStubArguments* args = static_cast<ThreadStubArguments*>(argument);
+            assert(args != nullptr);
+
+            ClrFlsSetThreadType(ThreadType_GC);
+            STRESS_LOG_RESERVE_MEM(GC_STRESSLOG_MULTIPLY);
+
+            args->HasStarted = true;
+            auto threadStart = args->ThreadStart;
+            void* threadArgument = args->Argument;
+            args->ThreadStartedEvent.Set();
+
+            // The stub args cannot be used once the event is set, since that releases wait on the
+            // event in the function that created this thread and the stubArgs go out of scope.
+            threadStart(threadArgument);
+            return 0;
+        };
+
+        args.Thread = Thread::CreateUtilityThread(Thread::StackSize_Medium, threadStub, &args);
+        if (args.Thread == INVALID_HANDLE_VALUE)
+        {
+            args.ThreadStartedEvent.CloseEvent();
+            return false;
+        }
+
+        // Wait for the thread to be in its main loop
+        uint32_t res = args.ThreadStartedEvent.Wait(INFINITE, FALSE);
+        args.ThreadStartedEvent.CloseEvent();
+        _ASSERTE(res == WAIT_OBJECT_0);
+
+        CloseHandle(args.Thread);
+        return true;
+    }
+} // anonymous namespace
+
+bool GCToEEInterface::CreateThread(void (*threadStart)(void*), void* arg, bool is_suspendable, const char* name)
+{
+    LIMITED_METHOD_CONTRACT;
+    if (is_suspendable)
+    {
+        return CreateSuspendableThread(threadStart, arg, name);
+    }
+    else
+    {
+        return CreateNonSuspendableThread(threadStart, arg, name);
+    }
 }

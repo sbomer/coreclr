@@ -14,6 +14,7 @@
 
 namespace System
 {
+    using System.Buffers;
     using System.IO;
     using System.Security;
     using System.Resources;
@@ -30,7 +31,6 @@ namespace System
     using System.Threading;
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.Versioning;
-    using System.Diagnostics.Contracts;
 
     public enum EnvironmentVariableTarget
     {
@@ -42,7 +42,7 @@ namespace System
     internal static partial class Environment
     {
         // Assume the following constants include the terminating '\0' - use <, not <=
-        private const int MaxEnvVariableValueLength = 32767;  // maximum length for environment variable name and value
+
         // System environment variables are stored in the registry, and have 
         // a size restriction that is separate from both normal environment 
         // variables and registry value name lengths, according to MSDN.
@@ -76,7 +76,6 @@ namespace System
 
         // Terminates this process with the given exit code.
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         internal static extern void _Exit(int exitCode);
 
         public static void Exit(int exitCode)
@@ -116,26 +115,12 @@ namespace System
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern void FailFast(String message, Exception exception);
 
-        // Returns the system directory (ie, C:\WinNT\System32).
-        internal static String SystemDirectory
-        {
-            get
-            {
-                StringBuilder sb = new StringBuilder(Path.MaxPath);
-                int r = Win32Native.GetSystemDirectory(sb, Path.MaxPath);
-                Debug.Assert(r < Path.MaxPath, "r < Path.MaxPath");
-                if (r == 0) __Error.WinIOError();
-                String path = sb.ToString();
-
-                return path;
-            }
-        }
-
+#if FEATURE_WIN32_REGISTRY
+        // This is only used by RegistryKey on Windows.
         public static String ExpandEnvironmentVariables(String name)
         {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
-            Contract.EndContractBlock();
 
             if (name.Length == 0)
             {
@@ -144,27 +129,6 @@ namespace System
 
             int currentSize = 100;
             StringBuilder blob = new StringBuilder(currentSize); // A somewhat reasonable default size
-
-#if PLATFORM_UNIX // Win32Native.ExpandEnvironmentStrings isn't available
-            int lastPos = 0, pos;
-            while (lastPos < name.Length && (pos = name.IndexOf('%', lastPos + 1)) >= 0)
-            {
-                if (name[lastPos] == '%')
-                {
-                    string key = name.Substring(lastPos + 1, pos - lastPos - 1);
-                    string value = Environment.GetEnvironmentVariable(key);
-                    if (value != null)
-                    {
-                        blob.Append(value);
-                        lastPos = pos + 1;
-                        continue;
-                    }
-                }
-                blob.Append(name.Substring(lastPos, pos - lastPos));
-                lastPos = pos;
-            }
-            blob.Append(name.Substring(lastPos));
-#else
 
             int size;
 
@@ -183,13 +147,12 @@ namespace System
                 if (size == 0)
                     Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
             }
-#endif // PLATFORM_UNIX
 
             return blob.ToString();
         }
+#endif // FEATURE_WIN32_REGISTRY
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern Int32 GetProcessorCount();
 
         public static int ProcessorCount
@@ -241,44 +204,38 @@ namespace System
         {
             char[] block = null;
 
-            // Make sure pStrings is not leaked with async exceptions
             RuntimeHelpers.PrepareConstrainedRegions();
+
+            char* pStrings = null;
+
             try
             {
+                pStrings = Win32Native.GetEnvironmentStrings();
+                if (pStrings == null)
+                {
+                    throw new OutOfMemoryException();
+                }
+
+                // Format for GetEnvironmentStrings is:
+                // [=HiddenVar=value\0]* [Variable=value\0]* \0
+                // See the description of Environment Blocks in MSDN's
+                // CreateProcess page (null-terminated array of null-terminated strings).
+
+                // Search for terminating \0\0 (two unicode \0's).
+                char* p = pStrings;
+                while (!(*p == '\0' && *(p + 1) == '\0'))
+                    p++;
+
+                int len = (int)(p - pStrings + 1);
+                block = new char[len];
+
+                fixed (char* pBlock = block)
+                    string.wstrcpy(pBlock, pStrings, len);
             }
             finally
             {
-                char* pStrings = null;
-
-                try
-                {
-                    pStrings = Win32Native.GetEnvironmentStrings();
-                    if (pStrings == null)
-                    {
-                        throw new OutOfMemoryException();
-                    }
-
-                    // Format for GetEnvironmentStrings is:
-                    // [=HiddenVar=value\0]* [Variable=value\0]* \0
-                    // See the description of Environment Blocks in MSDN's
-                    // CreateProcess page (null-terminated array of null-terminated strings).
-
-                    // Search for terminating \0\0 (two unicode \0's).
-                    char* p = pStrings;
-                    while (!(*p == '\0' && *(p + 1) == '\0'))
-                        p++;
-
-                    int len = (int)(p - pStrings + 1);
-                    block = new char[len];
-
-                    fixed (char* pBlock = block)
-                        string.wstrcpy(pBlock, pStrings, len);
-                }
-                finally
-                {
-                    if (pStrings != null)
-                        Win32Native.FreeEnvironmentStrings(pStrings);
-                }
+                if (pStrings != null)
+                    Win32Native.FreeEnvironmentStrings(pStrings);
             }
 
             return block;
@@ -295,7 +252,6 @@ namespace System
         {
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
 #if PLATFORM_WINDOWS
                 return "\r\n";
 #else
@@ -351,7 +307,6 @@ namespace System
         internal static bool IsWinRTSupported => s_IsWinRTSupported.Value;
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool WinRTSupported();
 #endif // FEATURE_COMINTEROP
@@ -368,7 +323,6 @@ namespace System
             [MethodImpl(MethodImplOptions.NoInlining)] // Prevent inlining from affecting where the stacktrace starts
             get
             {
-                Contract.Ensures(Contract.Result<String>() != null);
                 return Internal.Runtime.Augments.EnvironmentAugments.StackTrace;
             }
         }
@@ -500,8 +454,6 @@ namespace System
 
         private static void ValidateVariableAndValue(string variable, ref string value)
         {
-            const int MaxEnvVariableValueLength = 32767;
-
             if (variable == null)
             {
                 throw new ArgumentNullException(nameof(variable));
@@ -514,10 +466,6 @@ namespace System
             {
                 throw new ArgumentException(SR.Argument_StringFirstCharIsZero, nameof(variable));
             }
-            if (variable.Length >= MaxEnvVariableValueLength)
-            {
-                throw new ArgumentException(SR.Argument_LongEnvVarValue, nameof(variable));
-            }
             if (variable.IndexOf('=') != -1)
             {
                 throw new ArgumentException(SR.Argument_IllegalEnvVarName, nameof(variable));
@@ -527,10 +475,6 @@ namespace System
             {
                 // Explicitly null out value if it's empty
                 value = null;
-            }
-            else if (value.Length >= MaxEnvVariableValueLength)
-            {
-                throw new ArgumentException(SR.Argument_LongEnvVarValue, nameof(value));
             }
         }
 
@@ -546,23 +490,33 @@ namespace System
 
         private static string GetEnvironmentVariableCore(string variable)
         {
-            StringBuilder sb = StringBuilderCache.Acquire(128); // A somewhat reasonable default size
-            int requiredSize = Win32Native.GetEnvironmentVariable(variable, sb, sb.Capacity);
+            Span<char> buffer = stackalloc char[128]; // A somewhat reasonable default size
+            return GetEnvironmentVariableCoreHelper(variable, buffer);
+        }
+
+        private static string GetEnvironmentVariableCoreHelper(string variable, Span<char> buffer)
+        {
+            int requiredSize = Win32Native.GetEnvironmentVariable(variable, buffer);
 
             if (requiredSize == 0 && Marshal.GetLastWin32Error() == Win32Native.ERROR_ENVVAR_NOT_FOUND)
             {
-                StringBuilderCache.Release(sb);
                 return null;
             }
 
-            while (requiredSize > sb.Capacity)
+            if (requiredSize > buffer.Length)
             {
-                sb.Capacity = requiredSize;
-                sb.Length = 0;
-                requiredSize = Win32Native.GetEnvironmentVariable(variable, sb, sb.Capacity);
+                char[] chars = ArrayPool<char>.Shared.Rent(requiredSize);
+                try
+                {
+                    return GetEnvironmentVariableCoreHelper(variable, chars);
+                }
+                finally
+                {
+                    ArrayPool<char>.Shared.Return(chars);
+                }
             }
 
-            return StringBuilderCache.GetStringAndRelease(sb);
+            return new string(buffer.Slice(0, requiredSize));
         }
 
         private static string GetEnvironmentVariableCore(string variable, EnvironmentVariableTarget target)
@@ -587,7 +541,6 @@ namespace System
             }
             else if (target == EnvironmentVariableTarget.User)
             {
-                Debug.Assert(target == EnvironmentVariableTarget.User);
                 baseKey = Registry.CurrentUser;
                 keyName = "Environment";
             }
@@ -677,7 +630,6 @@ namespace System
             }
             else if (target == EnvironmentVariableTarget.User)
             {
-                Debug.Assert(target == EnvironmentVariableTarget.User);
                 baseKey = Registry.CurrentUser;
                 keyName = @"Environment";
             }
@@ -719,8 +671,11 @@ namespace System
                         // The error message from Win32 is "The filename or extension is too long",
                         // which is not accurate.
                         throw new ArgumentException(SR.Format(SR.Argument_LongEnvVarValue));
+                    case Win32Native.ERROR_NOT_ENOUGH_MEMORY:
+                    case Win32Native.ERROR_NO_SYSTEM_RESOURCES:
+                        throw new OutOfMemoryException(Interop.Kernel32.GetMessage(errorCode));
                     default:
-                        throw new ArgumentException(Win32Native.GetMessage(errorCode));
+                        throw new ArgumentException(Interop.Kernel32.GetMessage(errorCode));
                 }
             }
         }
@@ -755,8 +710,6 @@ namespace System
             }
             else if (target == EnvironmentVariableTarget.User)
             {
-                Debug.Assert(target == EnvironmentVariableTarget.User);
-
                 // User-wide environment variables stored in the registry are limited to 255 chars for the environment variable name.
                 const int MaxUserEnvVariableLength = 255;
                 if (variable.Length >= MaxUserEnvVariableLength)
@@ -788,10 +741,10 @@ namespace System
             }
 
             // send a WM_SETTINGCHANGE message to all windows
-            IntPtr r = Win32Native.SendMessageTimeout(new IntPtr(Win32Native.HWND_BROADCAST),
-                Win32Native.WM_SETTINGCHANGE, IntPtr.Zero, "Environment", 0, 1000, IntPtr.Zero);
+            IntPtr r = Interop.User32.SendMessageTimeout(new IntPtr(Interop.User32.HWND_BROADCAST),
+                Interop.User32.WM_SETTINGCHANGE, IntPtr.Zero, "Environment", 0, 1000, IntPtr.Zero);
 
-            if (r == IntPtr.Zero) Debug.Assert(false, "SetEnvironmentVariable failed: " + Marshal.GetLastWin32Error());
+            Debug.Assert(r != IntPtr.Zero, "SetEnvironmentVariable failed: " + Marshal.GetLastWin32Error());
 #endif // FEATURE_WIN32_REGISTRY
         }
     }

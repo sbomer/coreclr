@@ -1107,6 +1107,10 @@ HANDLE ZapImage::SaveImage(LPCWSTR wszOutputFileName, CORCOMPILE_NGEN_SIGNATURE 
 
     HANDLE hFile = GenerateFile(wszOutputFileName, pNativeImageSig);
 
+    if (m_zapper->m_pOpt->m_verbose)
+    {
+        PrintStats(wszOutputFileName);
+    }
 
     return hFile;
 }
@@ -3553,6 +3557,12 @@ void ZapImage::Error(mdToken token, HRESULT hr, UINT resID,  LPCWSTR message)
     if (resID == IDS_EE_SIMD_NGEN_DISALLOWED)
     {
         // Supress printing of "Target-dependent SIMD vector types may not be used with ngen."
+        level = CORZAP_LOGLEVEL_INFO;
+    }
+
+    if (resID == IDS_EE_HWINTRINSIC_NGEN_DISALLOWED)
+    {
+        // Supress printing of "Hardware intrinsics may not be used with ngen."
         level = CORZAP_LOGLEVEL_INFO;
     }
 

@@ -21,7 +21,6 @@ using System.Text;
 using Microsoft.Win32.SafeHandles;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 namespace System.IO
 {
@@ -100,7 +99,7 @@ namespace System.IO
                 {
                     int n = fs.Read(bytes, index, count);
                     if (n == 0)
-                        __Error.EndOfFile();
+                        throw Error.GetEndOfFile();
                     index += n;
                     count -= n;
                 }
@@ -115,16 +114,15 @@ namespace System.IO
                 throw new ArgumentNullException(nameof(path));
             if (path.Length == 0)
                 throw new ArgumentException(SR.Argument_EmptyPath);
-            Contract.EndContractBlock();
 
             return InternalReadAllLines(path, Encoding.UTF8);
         }
 
         private static String[] InternalReadAllLines(String path, Encoding encoding)
         {
-            Contract.Requires(path != null);
-            Contract.Requires(encoding != null);
-            Contract.Requires(path.Length != 0);
+            Debug.Assert(path != null);
+            Debug.Assert(encoding != null);
+            Debug.Assert(path.Length != 0);
 
             String line;
             List<String> lines = new List<String>();
@@ -195,8 +193,8 @@ namespace System.IO
                             // if we're already returning an error, don't throw another one. 
                             if (!error)
                             {
-                                Debug.Assert(false, "File::FillAttributeInfo - FindClose failed!");
-                                __Error.WinIOError();
+                                Debug.Fail("File::FillAttributeInfo - FindClose failed!");
+                                throw Win32Marshal.GetExceptionForLastWin32Error();
                             }
                         }
                     }

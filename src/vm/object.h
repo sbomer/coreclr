@@ -497,6 +497,8 @@ class Object
         return GetHeader()->TryEnterObjMonitor(timeOut);
     }
 
+    bool TryEnterObjMonitorSpinHelper();
+
     FORCEINLINE AwareLock::EnterHelperResult EnterObjMonitorHelper(Thread* pCurThread)
     {
         WRAPPER_NO_CONTRACT;
@@ -950,6 +952,13 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return GetMethodTable()->GetApproxArrayElementTypeHandle();
+    }
+
+    PTR_OBJECTREF GetDataPtr()
+    {
+        LIMITED_METHOD_CONTRACT;
+        SUPPORTS_DAC;
+        return dac_cast<PTR_OBJECTREF>(dac_cast<PTR_BYTE>(this) + GetDataOffset());
     }
 
     static SIZE_T GetDataOffset()
@@ -1898,10 +1907,6 @@ class AppDomainSetupObject : public Object
     PTRARRAYREF m_Entries;
     STRINGREF m_AppBase;
     OBJECTREF m_CompatFlags;
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    CLR_BOOL m_UseRandomizedStringHashing;
-#endif
-
 
   protected:
     AppDomainSetupObject() { LIMITED_METHOD_CONTRACT; }
@@ -2872,9 +2877,6 @@ class SafeHandle : public Object
     //   Modifying the order or fields of this object may require
     //   other changes to the classlib class definition of this
     //   object or special handling when loading this system class.
-#ifdef _DEBUG
-    STRINGREF m_debugStackTrace;   // Where we allocated this SafeHandle
-#endif
     Volatile<LPVOID> m_handle;
     Volatile<INT32> m_state;        // Combined ref count and closed/disposed state (for atomicity)
     Volatile<CLR_BOOL> m_ownsHandle;
@@ -2942,9 +2944,6 @@ class CriticalHandle : public Object
     //   Modifying the order or fields of this object may require
     //   other changes to the classlib class definition of this
     //   object or special handling when loading this system class.
-#ifdef _DEBUG
-    STRINGREF m_debugStackTrace;   // Where we allocated this CriticalHandle
-#endif
     Volatile<LPVOID> m_handle;
     Volatile<CLR_BOOL> m_isClosed;
 
@@ -2957,20 +2956,6 @@ class CriticalHandle : public Object
     static FCDECL1(void, FireCustomerDebugProbe, CriticalHandle* refThisUNSAFE);
 };
 
-
-class ReflectClassBaseObject;
-
-class SafeBuffer : SafeHandle
-{
-  private:
-    size_t m_numBytes;
-
-  public:
-    static FCDECL1(UINT, SizeOfType, ReflectClassBaseObject* typeUNSAFE);
-    static FCDECL1(UINT, AlignedSizeOfType, ReflectClassBaseObject* typeUNSAFE);
-    static FCDECL3_IVI(void, PtrToStructure, BYTE* ptr, FC_TypedByRef structure, UINT32 sizeofT);
-    static FCDECL3_VII(void, StructureToPtr, FC_TypedByRef structure, BYTE* ptr, UINT32 sizeofT);
-};
 
 #ifdef USE_CHECKED_OBJECTREFS
 typedef REF<CriticalHandle> CRITICALHANDLE;
@@ -3001,44 +2986,6 @@ private:
 typedef REF<WaitHandleBase> WAITHANDLEREF;
 #else // USE_CHECKED_OBJECTREFS
 typedef WaitHandleBase* WAITHANDLEREF;
-#endif // USE_CHECKED_OBJECTREFS
-
-// This class corresponds to FileStreamAsyncResult on the managed side.
-class AsyncResultBase :public Object
-{
-    friend class MscorlibBinder;
-
-public: 
-    WAITHANDLEREF GetWaitHandle() { LIMITED_METHOD_CONTRACT; return _waitHandle;}
-    void SetErrorCode(int errcode) { LIMITED_METHOD_CONTRACT; _errorCode = errcode;}
-    void SetNumBytes(int numBytes) { LIMITED_METHOD_CONTRACT; _numBytes = numBytes;}
-    void SetIsComplete() { LIMITED_METHOD_CONTRACT; _isComplete = TRUE; }
-    void SetCompletedAsynchronously() { LIMITED_METHOD_CONTRACT; _completedSynchronously = FALSE; }
-
-    // README:
-    // If you modify the order of these fields, make sure to update the definition in 
-    // BCL for this object.
-private:
-    OBJECTREF _userCallback;
-    OBJECTREF _userStateObject;
-
-    WAITHANDLEREF _waitHandle;
-    SAFEHANDLEREF _fileHandle;     // For cancellation.
-    LPOVERLAPPED  _overlapped;
-    int _EndXxxCalled;             // Whether we've called EndXxx already.
-    int _numBytes;                 // number of bytes read OR written
-    int _errorCode;
-    int _numBufferedBytes;
-
-    CLR_BOOL _isWrite;                 // Whether this is a read or a write
-    CLR_BOOL _isComplete;
-    CLR_BOOL _completedSynchronously;  // Which thread called callback
-};
-
-#ifdef USE_CHECKED_OBJECTREFS
-typedef REF<AsyncResultBase> ASYNCRESULTREF;
-#else // USE_CHECKED_OBJECTREFS
-typedef AsyncResultBase* ASYNCRESULTREF;
 #endif // USE_CHECKED_OBJECTREFS
 
 // This class corresponds to System.MulticastDelegate on the managed side.
@@ -3543,7 +3490,6 @@ public:
 private:
     STRINGREF   _className;  //Needed for serialization.
     OBJECTREF   _exceptionMethod;  //Needed for serialization.
-    STRINGREF   _exceptionMethodString; //Needed for serialization.
     STRINGREF   _message;
     OBJECTREF   _data;
     OBJECTREF   _innerException;

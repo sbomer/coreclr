@@ -46,7 +46,6 @@
 
 #ifdef FEATURE_COMINTEROP
 #include "comtoclrcall.h"
-#include "sxshelpers.h"
 #include "runtimecallablewrapper.h"
 #include "mngstdinterfaces.h"
 #include "olevariant.h"
@@ -64,8 +63,6 @@
 
 #include "nativeoverlapped.h"
 
-#include "compatibilityflags.h"
-
 #ifndef FEATURE_PAL
 #include "dwreport.h"
 #endif // !FEATURE_PAL
@@ -78,12 +75,10 @@
 #include "clrprivtypecachewinrt.h"
 
 
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
 #pragma warning(push)
 #pragma warning(disable:4324) 
 #include "marvin32.h"
 #pragma warning(pop)
-#endif
 
 // this file handles string conversion errors for itself
 #undef  MAKE_TRANSLATIONFAILED
@@ -709,10 +704,6 @@ OBJECTHANDLE ThreadStaticHandleTable::AllocateHandles(DWORD nRequested)
 //*****************************************************************************
 void BaseDomain::Attach()
 {
-#ifdef  FEATURE_RANDOMIZED_STRING_HASHING
-    // Randomized string hashing is on by default for String.GetHashCode in coreclr.
-    COMNlsHashProvider::s_NlsHashProvider.SetUseRandomHashing((CorHost2::GetStartupFlags() & STARTUP_DISABLE_RANDOMIZED_STRING_HASHING) == 0);
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
     m_SpecialStaticsCrst.Init(CrstSpecialStatics);
 }
 
@@ -2068,8 +2059,6 @@ BOOL AppDomain::GetPreferComInsteadOfManagedRemoting()
     return (GetComOrRemotingFlag() == COMorRemoting_COM);
 }
 
-STDAPI GetXMLObjectEx(IXMLParser **ppv);
-
 COMorRemotingFlag AppDomain::GetPreferComInsteadOfManagedRemotingFromConfigFile()
 {
     CONTRACTL
@@ -2410,10 +2399,6 @@ void SystemDomain::Init()
 #endif
     _ASSERTE(curCtx);
     _ASSERTE(curCtx->GetDomain() != NULL);
-#endif
-
-#ifdef _DEBUG
-    g_fVerifierOff = g_pConfig->IsVerifierOff();
 #endif
 
 #ifdef FEATURE_PREJIT
@@ -6437,22 +6422,6 @@ PVOID AppDomain::GetFriendlyNameNoSet(bool* isUtf8)
 
 #endif // DACCESS_COMPILE
 
-void AppDomain::CacheStringsForDAC()
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_TRIGGERS;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    //
-    // If the application base, private bin paths, and configuration file are
-    // available, cache them so DAC can read them out of memory
-    //
-}
-
 #ifndef DACCESS_COMPILE
 
 BOOL AppDomain::AddFileToCache(AssemblySpec* pSpec, PEAssembly *pFile, BOOL fAllowFailure)
@@ -7709,8 +7678,6 @@ void AppDomain::InitializeDomainContext(BOOL allowRedirects,
         setupDomain.Call(args);
     }
     GCPROTECT_END();
-
-    CacheStringsForDAC();
 #endif // CROSSGEN_COMPILE
 }
 
@@ -8103,7 +8070,7 @@ void AppDomain::Exit(BOOL fRunFinalizers, BOOL fAsyncExit)
     // have exited the domain.
     //
 #ifdef FEATURE_TIERED_COMPILATION
-    m_tieredCompilationManager.OnAppDomainShutdown();
+    m_tieredCompilationManager.Shutdown(FALSE);
 #endif
 
     //
@@ -10948,22 +10915,6 @@ PTR_MethodTable BaseDomain::LookupType(UINT32 id) {
     return pMT;
 }
 
-#ifndef DACCESS_COMPILE
-
-
-//------------------------------------------------------------------------
-BOOL GetCompatibilityFlag(CompatibilityFlag flag)
-{
-    CONTRACTL {
-        NOTHROW;
-        GC_NOTRIGGER;
-        SO_TOLERANT;
-    } CONTRACTL_END;
-
-    return FALSE;
-}
-#endif // !DACCESS_COMPILE
-
 //---------------------------------------------------------------------------------------
 // 
 BOOL 
@@ -11920,20 +11871,4 @@ void ZapperSetBindingPaths(ICorCompilationDomain *pDomain, SString &trustedPlatf
 #endif
 }
 
-#endif
-
-#if !defined(CROSSGEN_COMPILE)
-bool IsSingleAppDomain()
-{
-    STARTUP_FLAGS flags = CorHost2::GetStartupFlags();
-    if(flags & STARTUP_SINGLE_APPDOMAIN)
-        return TRUE;
-    else
-        return FALSE;
-}
-#else
-bool IsSingleAppDomain()
-{
-    return FALSE;
-}
 #endif

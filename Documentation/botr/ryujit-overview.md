@@ -103,7 +103,7 @@ The liveness analysis determines the set of defs, as well as the uses that are u
 
 * The live-in and live-out sets are captured in the `bbLiveIn` and `bbLiveOut` fields of the `BasicBlock`.
 * The `GTF_VAR_DEF` flag is set on a lclVar node (all of which are of type `GenTreeLclVarCommon`) that is a definition.
-* The `GTF_VAR_USEASG` flag is set (in addition to the `GTF_VAR_DEF` flag) for the target of an update (e.g. +=).
+* The `GTF_VAR_USEASG` flag is set (in addition to the `GTF_VAR_DEF` flag) on partial definitions of a local variable (i.e. `GT_LCL_FLD` nodes that do not define the entire variable).
 
 ## SSA
 
@@ -381,7 +381,7 @@ The “@ 15” is the location number of the node.  The “0=1” indicates that
 
 The RyuJIT register allocator uses a Linear Scan algorithm, with an approach similar to [[2]](#[2]). In brief, it operates on two main data structures:
 
-* `Intervals` (representing live ranges of variables or tree expressions) and `RegRecords` (representing physical registers), both of which derive from `Referent`.
+* `Intervals` (representing live ranges of variables or tree expressions) and `RegRecords` (representing physical registers), both of which derive from `Referenceable`.
 * `RefPositions`, which represent uses or defs (or variants thereof, such as ExposedUses) of either `Intervals` or physical registers.
 
 Pre-conditions:

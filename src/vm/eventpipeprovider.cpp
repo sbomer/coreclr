@@ -7,31 +7,29 @@
 #include "eventpipeconfiguration.h"
 #include "eventpipeevent.h"
 #include "eventpipeprovider.h"
+#include "sha1.h"
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeProvider::EventPipeProvider(const GUID &providerID, EventPipeCallback pCallbackFunction, void *pCallbackData)
+EventPipeProvider::EventPipeProvider(EventPipeConfiguration *pConfig, const SString &providerName, EventPipeCallback pCallbackFunction, void *pCallbackData)
 {
     CONTRACTL
     {
         THROWS;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(pConfig != NULL);
     }
     CONTRACTL_END;
 
-    m_providerID = providerID;
+    m_providerName = providerName;
     m_enabled = false;
     m_keywords = 0;
     m_providerLevel = EventPipeEventLevel::Critical;
     m_pEventList = new SList<SListElem<EventPipeEvent*>>();
     m_pCallbackFunction = pCallbackFunction;
     m_pCallbackData = pCallbackData;
-    m_pConfig = EventPipe::GetConfiguration();
-    _ASSERTE(m_pConfig != NULL);
-
-    // Register the provider.
-    m_pConfig->RegisterProvider(*this);
+    m_pConfig = pConfig;
 }
 
 EventPipeProvider::~EventPipeProvider()
@@ -43,15 +41,6 @@ EventPipeProvider::~EventPipeProvider()
         MODE_ANY;
     }
     CONTRACTL_END;
-
-    // Unregister the provider.
-    // This call is re-entrant.
-    // NOTE: We don't use the cached event pipe configuration pointer
-    // in case this runs during shutdown and the configuration has already
-    // been freed.
-    EventPipeConfiguration* pConfig = EventPipe::GetConfiguration();
-    _ASSERTE(pConfig != NULL);
-    pConfig->UnregisterProvider(*this);
 
     // Free all of the events.
     if(m_pEventList != NULL)
@@ -65,7 +54,9 @@ EventPipeProvider::~EventPipeProvider()
             EventPipeEvent *pEvent = pElem->GetValue();
             delete pEvent;
 
+            SListElem<EventPipeEvent*> *pCurElem = pElem;
             pElem = m_pEventList->GetNext(pElem);
+            delete pCurElem;
         }
 
         delete m_pEventList;
@@ -73,11 +64,11 @@ EventPipeProvider::~EventPipeProvider()
     }
 }
 
-const GUID& EventPipeProvider::GetProviderID() const
+const SString& EventPipeProvider::GetProviderName() const
 {
     LIMITED_METHOD_CONTRACT;
 
-    return m_providerID;
+    return m_providerName;
 }
 
 bool EventPipeProvider::Enabled() const
@@ -198,7 +189,7 @@ void EventPipeProvider::InvokeCallback()
     if(m_pCallbackFunction != NULL && !g_fEEShutDown)
     {
         (*m_pCallbackFunction)(
-            &m_providerID,
+            NULL, /* providerId */
             m_enabled,
             (UCHAR) m_providerLevel,
             m_keywords,

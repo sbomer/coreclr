@@ -44,20 +44,6 @@
 
 #define STACK_OVERFLOW_MESSAGE   W("StackOverflowException")
 
-//These are defined in System.ParseNumbers and should be kept in sync.
-#define PARSE_TREATASUNSIGNED 0x200
-#define PARSE_TREATASI1 0x400
-#define PARSE_TREATASI2 0x800
-#define PARSE_ISTIGHT 0x1000
-#define PARSE_NOSPACE 0x2000
-
-
-//
-//
-// PARSENUMBERS (and helper functions)
-//
-//
-
 /*===================================IsDigit====================================
 **Returns a bool indicating whether the character passed in represents a   **
 **digit.
@@ -119,638 +105,7 @@ INT32 wtoi(__in_ecount(length) WCHAR* wstr, DWORD length)
     return result;
 }
 
-INT32 ParseNumbers::GrabInts(const INT32 radix, __in_ecount(length) WCHAR *buffer, const int length, int *i, BOOL isUnsigned)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_COOPERATIVE;
-        PRECONDITION(CheckPointer(buffer));
-        PRECONDITION(CheckPointer(i));
-        PRECONDITION(*i >= 0);
-        PRECONDITION(length >= 0);
-        PRECONDITION( radix==2 || radix==8 || radix==10 || radix==16 );
-    }
-    CONTRACTL_END;
 
-    UINT32 result=0;
-    int value;
-    UINT32 maxVal;
-
-    // Allow all non-decimal numbers to set the sign bit.
-    if (radix==10 && !isUnsigned) {
-        maxVal = (0x7FFFFFFF / 10);
-
-        //Read all of the digits and convert to a number
-        while (*i<length&&(IsDigit(buffer[*i],radix,&value))) {
-            // Check for overflows - this is sufficient & correct.
-            if (result > maxVal || ((INT32)result)<0)
-                COMPlusThrow(kOverflowException, W("Overflow_Int32"));
-            result = result*radix + value;
-            (*i)++;
-        }
-        if ((INT32)result<0 && result!=0x80000000)
-            COMPlusThrow(kOverflowException, W("Overflow_Int32"));
-
-    }
-    else {
-        maxVal = ((UINT32) -1) / radix;
-
-        //Read all of the digits and convert to a number
-        while (*i<length&&(IsDigit(buffer[*i],radix,&value))) {
-            // Check for overflows - this is sufficient & correct.
-            if (result > maxVal)
-                COMPlusThrow(kOverflowException, W("Overflow_UInt32"));
-            // the above check won't cover 4294967296 to 4294967299
-            UINT32 temp = result*radix + value;
-            if( temp < result) { // this means overflow as well
-                COMPlusThrow(kOverflowException, W("Overflow_UInt32"));
-            }
-
-            result = temp;
-            (*i)++;
-        }
-    }
-    return(INT32) result;
-}
-
-INT64 ParseNumbers::GrabLongs(const INT32 radix, __in_ecount(length) WCHAR *buffer, const int length, int *i, BOOL isUnsigned)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_COOPERATIVE;
-        PRECONDITION(CheckPointer(buffer));
-        PRECONDITION(CheckPointer(i));
-        PRECONDITION(*i >= 0);
-        PRECONDITION(length >= 0);
-    }
-    CONTRACTL_END;
-
-    UINT64 result=0;
-    int value;
-    UINT64 maxVal;
-
-    // Allow all non-decimal numbers to set the sign bit.
-    if (radix==10 && !isUnsigned) {
-        maxVal = (UI64(0x7FFFFFFFFFFFFFFF) / 10);
-
-        //Read all of the digits and convert to a number
-        while (*i<length&&(IsDigit(buffer[*i],radix,&value))) {
-            // Check for overflows - this is sufficient & correct.
-            if (result > maxVal || ((INT64)result)<0)
-                COMPlusThrow(kOverflowException, W("Overflow_Int64"));
-            result = result*radix + value;
-            (*i)++;
-        }
-        if ((INT64)result<0 && result!=UI64(0x8000000000000000))
-            COMPlusThrow(kOverflowException, W("Overflow_Int64"));
-
-    }
-    else {
-        maxVal = ((UINT64) -1L) / radix;
-
-        //Read all of the digits and convert to a number
-        while (*i<length&&(IsDigit(buffer[*i],radix,&value))) {
-            // Check for overflows - this is sufficient & correct.
-            if (result > maxVal)
-                COMPlusThrow(kOverflowException, W("Overflow_UInt64"));
-
-            UINT64 temp = result*radix + value;
-            if( temp < result) { // this means overflow as well
-                COMPlusThrow(kOverflowException, W("Overflow_UInt64"));
-            }
-            result = temp;
-
-            (*i)++;
-        }
-    }
-    return(INT64) result;
-}
-
-void EatWhiteSpace(__in_ecount(length) WCHAR *buffer, int length, int *i)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        PRECONDITION(CheckPointer(buffer));
-        PRECONDITION(CheckPointer(i));
-        PRECONDITION(length >= 0);
-    }
-    CONTRACTL_END;
-
-    for (; *i<length && COMCharacter::nativeIsWhiteSpace(buffer[*i]); (*i)++);
-}
-
-FCIMPL5_VII(LPVOID, ParseNumbers::LongToString, INT64 n, INT32 radix, INT32 width, CLR_CHAR paddingChar, INT32 flags)
-{
-    FCALL_CONTRACT;
-
-    LPVOID rv = NULL;
-
-    HELPER_METHOD_FRAME_BEGIN_RET_0();
-
-    bool isNegative = false;
-    int index=0;
-    int charVal;
-    UINT64 l;
-    INT32 i;
-    INT32 buffLength=0;
-    WCHAR buffer[67];//Longest possible string length for an integer in binary notation with prefix
-
-    if (radix<MinRadix || radix>MaxRadix)
-        COMPlusThrowArgumentException(W("radix"), W("Arg_InvalidBase"));
-
-    //If the number is negative, make it positive and remember the sign.
-    if (n<0) {
-        isNegative=true;
-
-        // For base 10, write out -num, but other bases write out the
-        // 2's complement bit pattern
-        if (10==radix)
-            l = (UINT64)(-n);
-        else
-            l = (UINT64)n;
-    }
-    else {
-        l=(UINT64)n;
-    }
-
-    if (flags&PrintAsI1)
-        l = l&0xFF;
-    else if (flags&PrintAsI2)
-        l = l&0xFFFF;
-    else if (flags&PrintAsI4)
-        l=l&0xFFFFFFFF;
-
-    //Special case the 0.
-    if (0==l) {
-        buffer[0]='0';
-        index=1;
-    }
-    else {
-        //Pull apart the number and put the digits (in reverse order) into the buffer.
-        for (index=0; l>0; l=l/radix, index++) {
-            if ((charVal=(int)(l%radix))<10)
-                buffer[index] = (WCHAR)(charVal + '0');
-            else
-                buffer[index] = (WCHAR)(charVal + 'a' - 10);
-        }
-    }
-
-    //If they want the base, append that to the string (in reverse order)
-    if (radix!=10 && ((flags&PrintBase)!=0)) {
-        if (16==radix) {
-            buffer[index++]='x';
-            buffer[index++]='0';
-        }
-        else if (8==radix) {
-            buffer[index++]='0';
-        }
-        else if ((flags&PrintRadixBase)!=0) {
-            buffer[index++]='#';
-            buffer[index++]=((radix%10)+'0');
-            buffer[index++]=((static_cast<char>(radix)/10)+'0');
-        }
-    }
-
-    if (10==radix) {
-        //If it was negative, append the sign.
-        if (isNegative) {
-            buffer[index++]='-';
-        }
-
-        //else if they requested, add the '+';
-        else if ((flags&PrintSign)!=0) {
-            buffer[index++]='+';
-        }
-
-        //If they requested a leading space, put it on.
-        else if ((flags&PrefixSpace)!=0) {
-            buffer[index++]=' ';
-        }
-    }
-
-    //Figure out the size of our string.
-    if (width<=index)
-        buffLength=index;
-    else
-        buffLength=width;
-
-    STRINGREF Local = StringObject::NewString(buffLength);
-    WCHAR *LocalBuffer = Local->GetBuffer();
-
-    //Put the characters into the String in reverse order
-    //Fill the remaining space -- if there is any --
-    //with the correct padding character.
-    if ((flags&LeftAlign)!=0) {
-        for (i=0; i<index; i++) {
-            LocalBuffer[i]=buffer[index-i-1];
-        }
-        for (;i<buffLength; i++) {
-            LocalBuffer[i]=paddingChar;
-        }
-    }
-    else {
-        for (i=0; i<index; i++) {
-            LocalBuffer[buffLength-i-1]=buffer[i];
-        }
-        for (int j=buffLength-i-1; j>=0; j--) {
-            LocalBuffer[j]=paddingChar;
-        }
-    }
-
-    *((STRINGREF *)&rv)=Local;
-
-    HELPER_METHOD_FRAME_END();
-
-    return rv;
-}
-FCIMPLEND
-
-
-FCIMPL5(LPVOID, ParseNumbers::IntToString, INT32 n, INT32 radix, INT32 width, CLR_CHAR paddingChar, INT32 flags)
-{
-    FCALL_CONTRACT;
-
-    LPVOID rv = NULL;
-
-    HELPER_METHOD_FRAME_BEGIN_RET_0();
-
-    bool isNegative = false;
-    int index=0;
-    int charVal;
-    int buffLength;
-    int i;
-    UINT32 l;
-    WCHAR buffer[66];  //Longest possible string length for an integer in binary notation with prefix
-
-    if (radix<MinRadix || radix>MaxRadix)
-        COMPlusThrowArgumentException(W("radix"), W("Arg_InvalidBase"));
-
-    //If the number is negative, make it positive and remember the sign.
-    //If the number is MIN_VALUE, this will still be negative, so we'll have to
-    //special case this later.
-    if (n<0) {
-        isNegative=true;
-        // For base 10, write out -num, but other bases write out the
-        // 2's complement bit pattern
-        if (10==radix)
-            l = (UINT32)(-n);
-        else
-            l = (UINT32)n;
-    }
-    else {
-        l=(UINT32)n;
-    }
-
-    //The conversion to a UINT will sign extend the number.  In order to ensure
-    //that we only get as many bits as we expect, we chop the number.
-    if (flags&PrintAsI1) {
-        l = l&0xFF;
-    }
-    else if (flags&PrintAsI2) {
-        l = l&0xFFFF;
-    }
-    else if (flags&PrintAsI4) {
-        l=l&0xFFFFFFFF;
-    }
-
-    //Special case the 0.
-    if (0==l) {
-        buffer[0]='0';
-        index=1;
-    }
-    else {
-        do {
-            charVal = l%radix;
-            l=l/radix;
-            if (charVal<10) {
-                buffer[index++] = (WCHAR)(charVal + '0');
-            }
-            else {
-                buffer[index++] = (WCHAR)(charVal + 'a' - 10);
-            }
-        }
-        while (l!=0);
-    }
-
-    //If they want the base, append that to the string (in reverse order)
-    if (radix!=10 && ((flags&PrintBase)!=0)) {
-        if (16==radix) {
-            buffer[index++]='x';
-            buffer[index++]='0';
-        }
-        else if (8==radix) {
-            buffer[index++]='0';
-        }
-    }
-
-    if (10==radix) {
-        //If it was negative, append the sign.
-        if (isNegative) {
-            buffer[index++]='-';
-        }
-
-        //else if they requested, add the '+';
-        else if ((flags&PrintSign)!=0) {
-            buffer[index++]='+';
-        }
-
-        //If they requested a leading space, put it on.
-        else if ((flags&PrefixSpace)!=0) {
-            buffer[index++]=' ';
-        }
-    }
-
-    //Figure out the size of our string.
-    if (width<=index) {
-        buffLength=index;
-    }
-    else {
-        buffLength=width;
-    }
-
-    STRINGREF Local = StringObject::NewString(buffLength);
-    WCHAR *LocalBuffer = Local->GetBuffer();
-
-    //Put the characters into the String in reverse order
-    //Fill the remaining space -- if there is any --
-    //with the correct padding character.
-    if ((flags&LeftAlign)!=0) {
-        for (i=0; i<index; i++) {
-            LocalBuffer[i]=buffer[index-i-1];
-        }
-        for (;i<buffLength; i++) {
-            LocalBuffer[i]=paddingChar;
-        }
-    }
-    else {
-        for (i=0; i<index; i++) {
-            LocalBuffer[buffLength-i-1]=buffer[i];
-        }
-        for (int j=buffLength-i-1; j>=0; j--) {
-            LocalBuffer[j]=paddingChar;
-        }
-    }
-
-    *((STRINGREF *)&rv)=Local;
-
-    HELPER_METHOD_FRAME_END();
-
-    return rv;
-}
-FCIMPLEND
-
-
-/*===================================FixRadix===================================
-**It's possible that we parsed the radix in a base other than 10 by accident.
-**This method will take that number, verify that it only contained valid base 10
-**digits, and then do the conversion to base 10.  If it contained invalid digits,
-**they tried to pass us a radix such as 1A, so we throw a FormatException.
-**
-**Args: oldVal: The value that we had actually parsed in some arbitrary base.
-**      oldBase: The base in which we actually did the parsing.
-**
-**Returns:  oldVal as if it had been parsed as a base-10 number.
-**Exceptions: FormatException if either of the digits in the radix aren't
-**            valid base-10 numbers.
-==============================================================================*/
-int FixRadix(int oldVal, int oldBase)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_COOPERATIVE;
-    }
-    CONTRACTL_END;
-
-    int firstDigit = (oldVal/oldBase);
-    int secondDigit = (oldVal%oldBase);
-
-    if ((firstDigit>=10) || (secondDigit>=10))
-        COMPlusThrow(kFormatException, W("Format_BadBase"));
-
-    return(firstDigit*10)+secondDigit;
-}
-
-/*=================================StringToLong=================================
-**Action:
-**Returns:
-**Exceptions:
-==============================================================================*/
-FCIMPL4(INT64, ParseNumbers::StringToLong, StringObject * s, INT32 radix, INT32 flags, INT32 *currPos)
-{
-    FCALL_CONTRACT;
-
-    INT64 result = 0;
-
-    HELPER_METHOD_FRAME_BEGIN_RET_1(s);
-
-    int sign = 1;
-    WCHAR *input;
-    int length;
-    int i;
-    int grabNumbersStart=0;
-    INT32 r;
-
-    _ASSERTE((flags & PARSE_TREATASI1) == 0 && (flags & PARSE_TREATASI2) == 0);
-
-    if (s) {
-        i = currPos ? *currPos : 0;
-
-        //Do some radix checking.
-        //A radix of -1 says to use whatever base is spec'd on the number.
-        //Parse in Base10 until we figure out what the base actually is.
-        r = (-1==radix)?10:radix;
-
-        if (r!=2 && r!=10 && r!=8 && r!=16)
-            COMPlusThrow(kArgumentException, W("Arg_InvalidBase"));
-
-        s->RefInterpretGetStringValuesDangerousForGC(&input, &length);
-
-        if (i<0 || i>=length)
-            COMPlusThrowArgumentOutOfRange(W("startIndex"), W("ArgumentOutOfRange_Index"));
-
-        //Get rid of the whitespace and then check that we've still got some digits to parse.
-        if (!(flags & PARSE_ISTIGHT) && !(flags & PARSE_NOSPACE)) {
-            EatWhiteSpace(input,length,&i);
-            if (i==length)
-                COMPlusThrow(kFormatException, W("Format_EmptyInputString"));
-        }
-
-        //Check for a sign
-        if (input[i]=='-') {
-            if (r != 10)
-                COMPlusThrow(kArgumentException, W("Arg_CannotHaveNegativeValue"));
-
-            if (flags & PARSE_TREATASUNSIGNED)
-                COMPlusThrow(kOverflowException, W("Overflow_NegativeUnsigned"));
-
-            sign = -1;
-            i++;
-        }
-        else if (input[i]=='+') {
-            i++;
-        }
-
-        if ((radix==-1 || radix==16) && (i+1<length) && input[i]=='0') {
-            if (input[i+1]=='x' || input [i+1]=='X') {
-                r=16;
-                i+=2;
-            }
-        }
-
-        grabNumbersStart=i;
-        result = GrabLongs(r,input,length,&i, (flags & PARSE_TREATASUNSIGNED));
-
-        //Check if they passed us a string with no parsable digits.
-        if (i==grabNumbersStart)
-            COMPlusThrow(kFormatException, W("Format_NoParsibleDigits"));
-
-        if (flags & PARSE_ISTIGHT) {
-            //If we've got effluvia left at the end of the string, complain.
-            if (i<length)
-                COMPlusThrow(kFormatException, W("Format_ExtraJunkAtEnd"));
-        }
-
-        //Put the current index back into the correct place.
-        if (currPos != NULL) *currPos = i;
-
-        //Return the value properly signed.
-        if ((UINT64) result==UI64(0x8000000000000000) && sign==1 && r==10 && !(flags & PARSE_TREATASUNSIGNED))
-            COMPlusThrow(kOverflowException, W("Overflow_Int64"));
-
-        if (r == 10)
-            result *= sign;
-    }
-    else {
-        result = 0;
-    }
-
-    HELPER_METHOD_FRAME_END();
-
-    return result;
-}
-FCIMPLEND
-
-FCIMPL4(INT32, ParseNumbers::StringToInt, StringObject * s, INT32 radix, INT32 flags, INT32* currPos)
-{
-    FCALL_CONTRACT;
-
-    INT32 result = 0;
-
-    HELPER_METHOD_FRAME_BEGIN_RET_1(s);
-
-    int sign = 1;
-    WCHAR *input;
-    int length;
-    int i;
-    int grabNumbersStart=0;
-    INT32 r;
-
-    // TreatAsI1 and TreatAsI2 are mutually exclusive.
-    _ASSERTE(!((flags & PARSE_TREATASI1) != 0 && (flags & PARSE_TREATASI2) != 0));
-
-    if (s) {
-        //They're requied to tell me where to start parsing.
-        i = currPos ? (*currPos) : 0;
-
-        //Do some radix checking.
-        //A radix of -1 says to use whatever base is spec'd on the number.
-        //Parse in Base10 until we figure out what the base actually is.
-        r = (-1==radix)?10:radix;
-
-        if (r!=2 && r!=10 && r!=8 && r!=16)
-            COMPlusThrow(kArgumentException, W("Arg_InvalidBase"));
-
-        s->RefInterpretGetStringValuesDangerousForGC(&input, &length);
-
-        if (i<0 || i>=length)
-            COMPlusThrowArgumentOutOfRange(W("startIndex"), W("ArgumentOutOfRange_Index"));
-
-        //Get rid of the whitespace and then check that we've still got some digits to parse.
-        if (!(flags & PARSE_ISTIGHT) && !(flags & PARSE_NOSPACE)) {
-            EatWhiteSpace(input,length,&i);
-            if (i==length)
-                COMPlusThrow(kFormatException, W("Format_EmptyInputString"));
-        }
-
-        //Check for a sign
-        if (input[i]=='-') {
-            if (r != 10)
-                COMPlusThrow(kArgumentException, W("Arg_CannotHaveNegativeValue"));
-
-            if (flags & PARSE_TREATASUNSIGNED)
-                COMPlusThrow(kOverflowException, W("Overflow_NegativeUnsigned"));
-
-            sign = -1;
-            i++;
-        }
-        else if (input[i]=='+') {
-            i++;
-        }
-
-        //Consume the 0x if we're in an unknown base or in base-16.
-        if ((radix==-1||radix==16) && (i+1<length) && input[i]=='0') {
-            if (input[i+1]=='x' || input [i+1]=='X') {
-                r=16;
-                i+=2;
-            }
-        }
-
-        grabNumbersStart=i;
-        result = GrabInts(r,input,length,&i, (flags & PARSE_TREATASUNSIGNED));
-
-        //Check if they passed us a string with no parsable digits.
-        if (i==grabNumbersStart)
-            COMPlusThrow(kFormatException, W("Format_NoParsibleDigits"));
-
-        if (flags & PARSE_ISTIGHT) {
-            //If we've got effluvia left at the end of the string, complain.
-            if (i<(length))
-                COMPlusThrow(kFormatException, W("Format_ExtraJunkAtEnd"));
-        }
-
-        //Put the current index back into the correct place.
-        if (currPos != NULL) *currPos = i;
-
-        //Return the value properly signed.
-        if (flags & PARSE_TREATASI1) {
-            if ((UINT32)result > 0xFF)
-                COMPlusThrow(kOverflowException, W("Overflow_SByte"));
-
-            // result looks positive when parsed as an I4
-            _ASSERTE(sign==1 || r==10);
-        }
-        else if (flags & PARSE_TREATASI2) {
-            if ((UINT32)result > 0xFFFF)
-                COMPlusThrow(kOverflowException, W("Overflow_Int16"));
-
-            // result looks positive when parsed as an I4
-            _ASSERTE(sign==1 || r==10);
-        }
-        else if ((UINT32) result==0x80000000U && sign==1 && r==10 && !(flags & PARSE_TREATASUNSIGNED)) {
-            COMPlusThrow(kOverflowException, W("Overflow_Int32"));
-        }
-
-        if (r == 10)
-            result *= sign;
-    }
-    else {
-        result = 0;
-    }
-
-    HELPER_METHOD_FRAME_END();
-
-    return result;
-}
-FCIMPLEND
 
 //
 //
@@ -1447,54 +802,6 @@ FCIMPL5(VOID, Buffer::BlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, 
 }
 FCIMPLEND
 
-
-// InternalBlockCopy
-// This method from one primitive array to another based
-//  upon an offset into each an a byte count.
-FCIMPL5(VOID, Buffer::InternalBlockCopy, ArrayBase *src, int srcOffset, ArrayBase *dst, int dstOffset, int count)
-{
-    FCALL_CONTRACT;
-
-    // @TODO: We should consider writing this in managed code.  We probably
-    // cannot easily do this though - how do we get at the array's data?
-
-    // Unfortunately, we must do a check to make sure we're writing within
-    // the bounds of the array.  This will ensure that we don't overwrite
-    // memory elsewhere in the system nor do we write out junk.  This can
-    // happen if multiple threads interact with our IO classes simultaneously
-    // without being threadsafe.  Throw here.  
-    // Unfortunately this even applies to setting our internal buffers to
-    // null.  We don't want to debug races between Close and Read or Write.
-    if (src == NULL || dst == NULL)
-        FCThrowResVoid(kIndexOutOfRangeException, W("IndexOutOfRange_IORaceCondition"));
-
-    SIZE_T srcLen = src->GetNumComponents() * src->GetComponentSize();
-    SIZE_T dstLen = srcLen;
-    if (src != dst)
-        dstLen = dst->GetNumComponents() * dst->GetComponentSize();
-
-    if (srcOffset < 0 || dstOffset < 0 || count < 0)
-        FCThrowResVoid(kIndexOutOfRangeException, W("IndexOutOfRange_IORaceCondition"));
-
-    if (srcLen < (SIZE_T)srcOffset + (SIZE_T)count || dstLen < (SIZE_T)dstOffset + (SIZE_T)count)
-        FCThrowResVoid(kIndexOutOfRangeException, W("IndexOutOfRange_IORaceCondition"));
-
-    _ASSERTE(srcOffset >= 0);
-    _ASSERTE((src->GetNumComponents() * src->GetComponentSize()) - (unsigned) srcOffset >= (unsigned) count);
-    _ASSERTE((dst->GetNumComponents() * dst->GetComponentSize()) - (unsigned) dstOffset >= (unsigned) count);
-    _ASSERTE(dstOffset >= 0);
-    _ASSERTE(count >= 0);
-
-    // Copy the data.
-#if defined(_AMD64_) && !defined(PLATFORM_UNIX)
-    JIT_MemCpy(dst->GetDataPtr() + dstOffset, src->GetDataPtr() + srcOffset, count);
-#else
-    memmove(dst->GetDataPtr() + dstOffset, src->GetDataPtr() + srcOffset, count);
-#endif
-
-    FC_GC_POLL();
-}
-FCIMPLEND
 
 void QCALLTYPE MemoryNative::Clear(void *dst, size_t length)
 {
@@ -2602,36 +1909,146 @@ void QCALLTYPE COMInterlocked::MemoryBarrierProcessWide()
     FlushProcessWriteBuffers();
 }
 
-FCIMPL6(INT32, ManagedLoggingHelper::GetRegistryLoggingValues, CLR_BOOL* bLoggingEnabled, CLR_BOOL* bLogToConsole, INT32 *iLogLevel, CLR_BOOL* bPerfWarnings, CLR_BOOL* bCorrectnessWarnings, CLR_BOOL* bSafeHandleStackTraces)
+static BOOL HasOverriddenMethod(MethodTable* mt, MethodTable* classMT, WORD methodSlot)
 {
-    FCALL_CONTRACT;
+    CONTRACTL{
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        SO_TOLERANT;
+    } CONTRACTL_END;
 
-    INT32 logFacility = 0;
+    _ASSERTE(mt != NULL);
+    _ASSERTE(classMT != NULL);
+    _ASSERTE(methodSlot != 0);
 
-    HELPER_METHOD_FRAME_BEGIN_RET_0();
+    PCODE actual = mt->GetRestoredSlot(methodSlot);
+    PCODE base = classMT->GetRestoredSlot(methodSlot);
 
-    *bLoggingEnabled         = (bool)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_LogEnable, 0)!=0);
-    *bLogToConsole           = (bool)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_LogToConsole, 0)!=0);
-    *iLogLevel               = (INT32)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::EXTERNAL_LogLevel, 0));
-    logFacility              = (INT32)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_ManagedLogFacility, 0));
-    *bPerfWarnings           = (bool)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_BCLPerfWarnings, 0)!=0);
-    *bCorrectnessWarnings    = (bool)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_BCLCorrectnessWarnings, 0)!=0);
-    *bSafeHandleStackTraces  = (bool)(g_pConfig->GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_SafeHandleStackTraces, 0)!=0);
+    if (actual == base)
+    {
+        return FALSE;
+    }
 
-    HELPER_METHOD_FRAME_END();                              \
+    if (!classMT->IsZapped())
+    {
+        // If mscorlib is JITed, the slots can be patched and thus we need to compare the actual MethodDescs
+        // to detect match reliably
+        if (MethodTable::GetMethodDescForSlotAddress(actual) == MethodTable::GetMethodDescForSlotAddress(base))
+        {
+            return FALSE;
+        }
+    }
 
-    return logFacility;
+    return TRUE;
 }
-FCIMPLEND
 
-// Return true if the valuetype does not contain pointer and is tightly packed
+static BOOL CanCompareBitsOrUseFastGetHashCode(MethodTable* mt)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_TRIGGERS;
+        MODE_COOPERATIVE;
+    } CONTRACTL_END;
+
+    _ASSERTE(mt != NULL);
+
+    if (mt->HasCheckedCanCompareBitsOrUseFastGetHashCode())
+    {
+        return mt->CanCompareBitsOrUseFastGetHashCode();
+    }
+
+    if (mt->ContainsPointers()
+        || mt->IsNotTightlyPacked())
+    {
+        mt->SetHasCheckedCanCompareBitsOrUseFastGetHashCode();
+        return FALSE;
+    }
+
+    MethodTable* valueTypeMT = MscorlibBinder::GetClass(CLASS__VALUE_TYPE);
+    WORD slotEquals = MscorlibBinder::GetMethod(METHOD__VALUE_TYPE__EQUALS)->GetSlot();
+    WORD slotGetHashCode = MscorlibBinder::GetMethod(METHOD__VALUE_TYPE__GET_HASH_CODE)->GetSlot();
+
+    // Check the input type.
+    if (HasOverriddenMethod(mt, valueTypeMT, slotEquals)
+        || HasOverriddenMethod(mt, valueTypeMT, slotGetHashCode))
+    {
+        mt->SetHasCheckedCanCompareBitsOrUseFastGetHashCode();
+
+        // If overridden Equals or GetHashCode found, stop searching further.
+        return FALSE;
+    }
+
+    BOOL canCompareBitsOrUseFastGetHashCode = TRUE;
+
+    // The type itself did not override Equals or GetHashCode, go for its fields.
+    ApproxFieldDescIterator iter = ApproxFieldDescIterator(mt, ApproxFieldDescIterator::INSTANCE_FIELDS);
+    for (FieldDesc* pField = iter.Next(); pField != NULL; pField = iter.Next())
+    {
+        if (pField->GetFieldType() == ELEMENT_TYPE_VALUETYPE)
+        {
+            // Check current field type.
+            MethodTable* fieldMethodTable = pField->GetApproxFieldTypeHandleThrowing().GetMethodTable();
+            if (!CanCompareBitsOrUseFastGetHashCode(fieldMethodTable))
+            {
+                canCompareBitsOrUseFastGetHashCode = FALSE;
+                break;
+            }
+        }
+        else if (pField->GetFieldType() == ELEMENT_TYPE_R8
+                || pField->GetFieldType() == ELEMENT_TYPE_R4)
+        {
+            // We have double/single field, cannot compare in fast path.
+            canCompareBitsOrUseFastGetHashCode = FALSE;
+            break;
+        }
+    }
+
+    // We've gone through all instance fields. It's time to cache the result.
+    // Note SetCanCompareBitsOrUseFastGetHashCode(BOOL) ensures the checked flag
+    // and canCompare flag being set atomically to avoid race.
+    mt->SetCanCompareBitsOrUseFastGetHashCode(canCompareBitsOrUseFastGetHashCode);
+
+    return canCompareBitsOrUseFastGetHashCode;
+}
+
+NOINLINE static FC_BOOL_RET CanCompareBitsHelper(MethodTable* mt, OBJECTREF objRef)
+{
+    FC_INNER_PROLOG(ValueTypeHelper::CanCompareBits);
+
+    _ASSERTE(mt != NULL);
+    _ASSERTE(objRef != NULL);
+
+    BOOL ret = FALSE;
+
+    HELPER_METHOD_FRAME_BEGIN_RET_ATTRIB_1(Frame::FRAME_ATTR_EXACT_DEPTH|Frame::FRAME_ATTR_CAPTURE_DEPTH_2, objRef);
+
+    ret = CanCompareBitsOrUseFastGetHashCode(mt);
+
+    HELPER_METHOD_FRAME_END();
+    FC_INNER_EPILOG();
+
+    FC_RETURN_BOOL(ret);
+}
+
+// Return true if the valuetype does not contain pointer, is tightly packed, 
+// does not have floating point number field and does not override Equals method.
 FCIMPL1(FC_BOOL_RET, ValueTypeHelper::CanCompareBits, Object* obj)
 {
     FCALL_CONTRACT;
 
     _ASSERTE(obj != NULL);
     MethodTable* mt = obj->GetMethodTable();
-    FC_RETURN_BOOL(!mt->ContainsPointers() && !mt->IsNotTightlyPacked());
+
+    if (mt->HasCheckedCanCompareBitsOrUseFastGetHashCode())
+    {
+        FC_RETURN_BOOL(mt->CanCompareBitsOrUseFastGetHashCode());
+    }
+
+    OBJECTREF objRef(obj);
+
+    FC_INNER_RETURN(FC_BOOL_RET, CanCompareBitsHelper(mt, objRef));
 }
 FCIMPLEND
 
@@ -2650,12 +2067,6 @@ FCIMPL2(FC_BOOL_RET, ValueTypeHelper::FastEqualsCheck, Object* obj1, Object* obj
 }
 FCIMPLEND
 
-static BOOL CanUseFastGetHashCodeHelper(MethodTable *mt)
-{
-    LIMITED_METHOD_CONTRACT;
-    return !mt->ContainsPointers() && !mt->IsNotTightlyPacked();
-}
-
 static INT32 FastGetValueTypeHashCodeHelper(MethodTable *mt, void *pObjRef)
 {
     CONTRACTL
@@ -2664,7 +2075,6 @@ static INT32 FastGetValueTypeHashCodeHelper(MethodTable *mt, void *pObjRef)
         GC_NOTRIGGER;
         MODE_COOPERATIVE;
         SO_TOLERANT;
-        PRECONDITION(CanUseFastGetHashCodeHelper(mt));
     } CONTRACTL_END;
 
     INT32 hashCode = 0;
@@ -2690,9 +2100,19 @@ static INT32 RegularGetValueTypeHashCode(MethodTable *mt, void *pObjRef)
     INT32 hashCode = 0;
     INT32 *pObj = (INT32*)pObjRef;
 
+    BOOL canUseFastGetHashCodeHelper = FALSE;
+    if (mt->HasCheckedCanCompareBitsOrUseFastGetHashCode())
+    {
+        canUseFastGetHashCodeHelper = mt->CanCompareBitsOrUseFastGetHashCode();
+    }
+    else
+    {
+        canUseFastGetHashCodeHelper = CanCompareBitsOrUseFastGetHashCode(mt);
+    }
+
     // While we shouln't get here directly from ValueTypeHelper::GetHashCode, if we recurse we need to 
     // be able to handle getting the hashcode for an embedded structure whose hashcode is computed by the fast path.
-    if (CanUseFastGetHashCodeHelper(mt))
+    if (canUseFastGetHashCodeHelper)
     {
         return FastGetValueTypeHashCodeHelper(mt, pObjRef);
     }
@@ -2797,17 +2217,29 @@ FCIMPL1(INT32, ValueTypeHelper::GetHashCode, Object* objUNSAFE)
     // we munge the class index with two big prime numbers
     hashCode = typeID * 711650207 + 2506965631U;
 
-    if (CanUseFastGetHashCodeHelper(pMT))
+    BOOL canUseFastGetHashCodeHelper = FALSE;
+    if (pMT->HasCheckedCanCompareBitsOrUseFastGetHashCode())
+    {
+        canUseFastGetHashCodeHelper = pMT->CanCompareBitsOrUseFastGetHashCode();
+    }
+    else
+    {
+        HELPER_METHOD_FRAME_BEGIN_RET_1(obj);
+        canUseFastGetHashCodeHelper = CanCompareBitsOrUseFastGetHashCode(pMT);
+        HELPER_METHOD_FRAME_END();
+    }
+
+    if (canUseFastGetHashCodeHelper)
     {
         hashCode ^= FastGetValueTypeHashCodeHelper(pMT, obj->UnBox());
     }
     else
     {
-        HELPER_METHOD_FRAME_BEGIN_RET_1(obj);        
+        HELPER_METHOD_FRAME_BEGIN_RET_1(obj);
         hashCode ^= RegularGetValueTypeHashCode(pMT, obj->UnBox());
         HELPER_METHOD_FRAME_END();
     }
-    
+
     return hashCode;
 }
 FCIMPLEND
@@ -2850,14 +2282,11 @@ COMNlsHashProvider::COMNlsHashProvider()
 {
     LIMITED_METHOD_CONTRACT;
 
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    bUseRandomHashing = FALSE;
     pEntropy = NULL;
     pDefaultSeed = NULL;
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
 }
 
-INT32 COMNlsHashProvider::HashString(LPCWSTR szStr, SIZE_T strLen, BOOL forceRandomHashing, INT64 additionalEntropy)
+INT32 COMNlsHashProvider::HashString(LPCWSTR szStr, SIZE_T strLen)
 {
     CONTRACTL {
         THROWS;
@@ -2866,40 +2295,15 @@ INT32 COMNlsHashProvider::HashString(LPCWSTR szStr, SIZE_T strLen, BOOL forceRan
     }
     CONTRACTL_END;
 
-#ifndef FEATURE_RANDOMIZED_STRING_HASHING
-   _ASSERTE(forceRandomHashing == false);
-   _ASSERTE(additionalEntropy == 0);
-#endif
+    int marvinResult[SYMCRYPT_MARVIN32_RESULT_SIZE / sizeof(int)];
+    
+    SymCryptMarvin32(GetDefaultSeed(), (PCBYTE) szStr, strLen * sizeof(WCHAR), (PBYTE) &marvinResult);
 
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    if(bUseRandomHashing || forceRandomHashing)
-    {
-        int marvinResult[SYMCRYPT_MARVIN32_RESULT_SIZE / sizeof(int)];
-        
-        if(additionalEntropy == 0)
-        {
-            SymCryptMarvin32(GetDefaultSeed(), (PCBYTE) szStr, strLen * sizeof(WCHAR), (PBYTE) &marvinResult);
-        }
-        else
-        {
-            SYMCRYPT_MARVIN32_EXPANDED_SEED seed;
-            CreateMarvin32Seed(additionalEntropy, &seed);
-            SymCryptMarvin32(&seed, (PCBYTE) szStr, strLen * sizeof(WCHAR), (PBYTE) &marvinResult);
-        }
-
-        return marvinResult[0] ^ marvinResult[1];
-    }
-    else
-    {
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
-        return ::HashString(szStr);
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    }
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
+    return marvinResult[0] ^ marvinResult[1];
 }
 
 
-INT32 COMNlsHashProvider::HashSortKey(PCBYTE pSrc, SIZE_T cbSrc, BOOL forceRandomHashing, INT64 additionalEntropy)
+INT32 COMNlsHashProvider::HashSortKey(PCBYTE pSrc, SIZE_T cbSrc)
 {
     CONTRACTL {
         THROWS;
@@ -2908,141 +2312,15 @@ INT32 COMNlsHashProvider::HashSortKey(PCBYTE pSrc, SIZE_T cbSrc, BOOL forceRando
     }
     CONTRACTL_END;
 
-#ifndef FEATURE_RANDOMIZED_STRING_HASHING
-   _ASSERTE(forceRandomHashing == false);
-   _ASSERTE(additionalEntropy == 0);
-#endif
+    int marvinResult[SYMCRYPT_MARVIN32_RESULT_SIZE / sizeof(int)];
+    
+    // Sort Keys are terminated with a null byte which we didn't hash using the old algorithm, 
+    // so we don't have it with Marvin32 either.
+    SymCryptMarvin32(GetDefaultSeed(), pSrc, cbSrc - 1, (PBYTE) &marvinResult);
 
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    if(bUseRandomHashing || forceRandomHashing)
-    {
-        int marvinResult[SYMCRYPT_MARVIN32_RESULT_SIZE / sizeof(int)];
-        
-        // Sort Keys are terminated with a null byte which we didn't hash using the old algorithm, 
-        // so we don't have it with Marvin32 either.
-        if(additionalEntropy == 0)
-        {
-            SymCryptMarvin32(GetDefaultSeed(), pSrc, cbSrc - 1, (PBYTE) &marvinResult);
-        }
-        else
-        {
-            SYMCRYPT_MARVIN32_EXPANDED_SEED seed;       
-            CreateMarvin32Seed(additionalEntropy, &seed);
-            SymCryptMarvin32(&seed, pSrc, cbSrc - 1, (PBYTE) &marvinResult);
-        }
- 
-        return marvinResult[0] ^ marvinResult[1];
-    }
-    else
-    {
-#endif // FEATURE_RANDOMIZED_STRING_HASHING 
-        // Ok, lets build the hashcode -- mostly lifted from GetHashCode() in String.cs, for strings.
-        int hash1 = 5381;
-        int hash2 = hash1;
-        const BYTE *pB = pSrc;
-        BYTE    c;
-
-        while (pB != 0 && *pB != 0) {
-            hash1 = ((hash1 << 5) + hash1) ^ *pB;
-            c = pB[1];
-
-            //
-            // FUTURE: Update NewAPis::LCMapStringEx to perhaps use a different, bug free, Win32 API on Win2k3 to workaround the issue discussed below.
-            //
-            // On Win2k3 Server, LCMapStringEx(LCMAP_SORTKEY) output does not correspond to CompareString in all cases, breaking the .NET GetHashCode<->Equality Contract
-            // Due to a fluke in our GetHashCode method, we avoided this issue due to the break out of the loop on the binary-zero byte.
-            //
-            if (c == 0)
-                break;
-
-            hash2 = ((hash2 << 5) + hash2) ^ c;
-            pB += 2;
-        }
-
-        return hash1 + (hash2 * 1566083941);
-
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    }
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
-
+    return marvinResult[0] ^ marvinResult[1];
 }
 
-INT32 COMNlsHashProvider::HashiStringKnownLower80(LPCWSTR szStr, INT32 strLen, BOOL forceRandomHashing, INT64 additionalEntropy)
-{
-    CONTRACTL {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-#ifndef FEATURE_RANDOMIZED_STRING_HASHING
-   _ASSERTE(forceRandomHashing == false);
-   _ASSERTE(additionalEntropy == 0);
-#endif
-
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    if(bUseRandomHashing || forceRandomHashing)
-    {
-        WCHAR buf[SYMCRYPT_MARVIN32_INPUT_BLOCK_SIZE * 8];
-        SYMCRYPT_MARVIN32_STATE marvinState;
-        SYMCRYPT_MARVIN32_EXPANDED_SEED seed;
-
-        if(additionalEntropy == 0)
-        {
-            SymCryptMarvin32Init(&marvinState, GetDefaultSeed());
-        }
-        else
-        {
-            CreateMarvin32Seed(additionalEntropy, &seed);
-            SymCryptMarvin32Init(&marvinState, &seed);
-        }
-
-        LPCWSTR szEnd = szStr + strLen;
-
-        const UINT A_TO_Z_RANGE = (UINT)('z' - 'a');
-
-        while (szStr != szEnd)
-        {
-            size_t count = (sizeof(buf) / sizeof(buf[0]));
-
-            if ((size_t)(szEnd - szStr) < count)
-                count = (size_t)(szEnd - szStr);
-
-            for (size_t i = 0; i<count; i++)
-            {
-                WCHAR c = szStr[i];
-
-                if ((UINT)(c - 'a') <= A_TO_Z_RANGE)  // if (c >='a' && c <= 'z') 
-                {
-                   //If we have a lowercase character, ANDing off 0x20
-                   // will make it an uppercase character.
-                   c &= ~0x20;
-                }
-
-                buf[i] = c;
-            }
-
-            szStr += count;
-
-            SymCryptMarvin32Append(&marvinState, (PCBYTE) &buf, sizeof(WCHAR) * count);
-        }
-
-        int marvinResult[SYMCRYPT_MARVIN32_RESULT_SIZE / sizeof(int)];
-        SymCryptMarvin32Result(&marvinState, (PBYTE) &marvinResult);
-        return marvinResult[0] ^ marvinResult[1];
-    }
-    else
-    {
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
-        return ::HashiStringKnownLower80(szStr);
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
-    }
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
-}
-
-
-#ifdef FEATURE_RANDOMIZED_STRING_HASHING
 void COMNlsHashProvider::InitializeDefaultSeed()
 {
     CONTRACTL {
@@ -3110,27 +2388,8 @@ PCBYTE COMNlsHashProvider::GetEntropy()
     return (PCBYTE) pEntropy;
 }
 
-
-void COMNlsHashProvider::CreateMarvin32Seed(INT64 additionalEntropy, PSYMCRYPT_MARVIN32_EXPANDED_SEED pExpandedMarvinSeed)
-{
-    CONTRACTL {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    INT64 *pEntropy = (INT64*) GetEntropy();
-    INT64 entropy;
-
-    entropy = *pEntropy ^ additionalEntropy;
-
-    SymCryptMarvin32ExpandSeed(pExpandedMarvinSeed, (PCBYTE) &entropy, SYMCRYPT_MARVIN32_SEED_SIZE);
-}
-#endif // FEATURE_RANDOMIZED_STRING_HASHING
-
 #ifdef FEATURE_COREFX_GLOBALIZATION
-INT32 QCALLTYPE CoreFxGlobalization::HashSortKey(PCBYTE pSortKey, INT32 cbSortKey, BOOL forceRandomizedHashing, INT64 additionalEntropy)
+INT32 QCALLTYPE CoreFxGlobalization::HashSortKey(PCBYTE pSortKey, INT32 cbSortKey)
 {
     QCALL_CONTRACT;
 
@@ -3138,7 +2397,7 @@ INT32 QCALLTYPE CoreFxGlobalization::HashSortKey(PCBYTE pSortKey, INT32 cbSortKe
 
     BEGIN_QCALL;
 
-    retVal = COMNlsHashProvider::s_NlsHashProvider.HashSortKey(pSortKey, cbSortKey, forceRandomizedHashing, additionalEntropy);
+    retVal = COMNlsHashProvider::s_NlsHashProvider.HashSortKey(pSortKey, cbSortKey);
 
     END_QCALL;
 

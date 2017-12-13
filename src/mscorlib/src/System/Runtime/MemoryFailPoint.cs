@@ -22,7 +22,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ConstrainedExecution;
 using System.Runtime.Versioning;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 /* 
    This class allows an application to fail before starting certain 
@@ -156,7 +155,6 @@ namespace System.Runtime
         {
             if (sizeInMegabytes <= 0)
                 throw new ArgumentOutOfRangeException(nameof(sizeInMegabytes), SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
 
 #if !FEATURE_PAL // Remove this when CheckForAvailableMemory is able to provide legitimate estimates
             ulong size = ((ulong)sizeInMegabytes) << 20;
@@ -213,11 +211,19 @@ namespace System.Runtime
                 }
                 bool needContiguousVASpace = (ulong)LastKnownFreeAddressSpace < segmentSize;
 
-                BCLDebug.Trace("MEMORYFAILPOINT", "MemoryFailPoint: Checking for {0} MB, for allocation size of {1} MB, stage {9}.  Need page file? {2}  Need Address Space? {3}  Need Contiguous address space? {4}  Avail page file: {5} MB  Total free VA space: {6} MB  Contiguous free address space (found): {7} MB  Space reserved via process's MemoryFailPoints: {8} MB",
-                               segmentSize >> 20, sizeInMegabytes, needPageFile,
-                               needAddressSpace, needContiguousVASpace,
-                               availPageFile >> 20, totalAddressSpaceFree >> 20,
-                               LastKnownFreeAddressSpace >> 20, reserved, stage);
+#if false
+                Console.WriteLine($"MemoryFailPoint:" +
+                    $"Checking for {(segmentSize >> 20)} MB, " +
+                    $"for allocation size of {sizeInMegabytes} MB, " +
+                    $"stage {stage}. " +
+                    $"Need page file? {needPageFile} " +
+                    $"Need Address Space? {needAddressSpace} " +
+                    $"Need Contiguous address space? {needContiguousVASpace} " +
+                    $"Avail page file: {(availPageFile >> 20)} MB " +
+                    $"Total free VA space: {totalAddressSpaceFree >> 20} MB " +
+                    $"Contiguous free address space (found): {LastKnownFreeAddressSpace >> 20} MB " +
+                    $"Space reserved via process's MemoryFailPoints: {reserved} MB");
+#endif
 
                 if (!needPageFile && !needAddressSpace && !needContiguousVASpace)
                     break;
@@ -241,24 +247,20 @@ namespace System.Runtime
                         // Attempt to grow the OS's page file.  Note that we ignore
                         // any allocation routines from the host intentionally.
                         RuntimeHelpers.PrepareConstrainedRegions();
-                        try
+
+                        // This shouldn't overflow due to the if clauses above.
+                        UIntPtr numBytes = new UIntPtr(segmentSize);
+                        unsafe
                         {
-                        }
-                        finally
-                        {
-                            // This shouldn't overflow due to the if clauses above.
-                            UIntPtr numBytes = new UIntPtr(segmentSize);
-                            unsafe
+                            void* pMemory = Win32Native.VirtualAlloc(null, numBytes, Win32Native.MEM_COMMIT, Win32Native.PAGE_READWRITE);
+                            if (pMemory != null)
                             {
-                                void* pMemory = Win32Native.VirtualAlloc(null, numBytes, Win32Native.MEM_COMMIT, Win32Native.PAGE_READWRITE);
-                                if (pMemory != null)
-                                {
-                                    bool r = Win32Native.VirtualFree(pMemory, UIntPtr.Zero, Win32Native.MEM_RELEASE);
-                                    if (!r)
-                                        __Error.WinIOError();
-                                }
+                                bool r = Win32Native.VirtualFree(pMemory, UIntPtr.Zero, Win32Native.MEM_RELEASE);
+                                if (!r)
+                                    throw Win32Marshal.GetExceptionForLastWin32Error();
                             }
                         }
+
                         continue;
 
                     case 2:
@@ -267,7 +269,7 @@ namespace System.Runtime
                         if (needPageFile || needAddressSpace)
                         {
                             InsufficientMemoryException e = new InsufficientMemoryException(SR.InsufficientMemory_MemFailPoint);
-#if _DEBUG
+#if DEBUG
                             e.Data["MemFailPointState"] = new MemoryFailPointState(sizeInMegabytes, segmentSize,
                                  needPageFile, needAddressSpace, needContiguousVASpace,
                                  availPageFile >> 20, totalAddressSpaceFree >> 20,
@@ -279,7 +281,7 @@ namespace System.Runtime
                         if (needContiguousVASpace)
                         {
                             InsufficientMemoryException e = new InsufficientMemoryException(SR.InsufficientMemory_MemFailPoint_VAFrag);
-#if _DEBUG
+#if DEBUG
                             e.Data["MemFailPointState"] = new MemoryFailPointState(sizeInMegabytes, segmentSize,
                                  needPageFile, needAddressSpace, needContiguousVASpace,
                                  availPageFile >> 20, totalAddressSpaceFree >> 20,
@@ -291,7 +293,7 @@ namespace System.Runtime
                         break;
 
                     default:
-                        Debug.Assert(false, "Fell through switch statement!");
+                        Debug.Fail("Fell through switch statement!");
                         break;
                 }
             }
@@ -304,14 +306,9 @@ namespace System.Runtime
                 CheckForFreeAddressSpace(segmentSize, true);
 
             RuntimeHelpers.PrepareConstrainedRegions();
-            try
-            {
-            }
-            finally
-            {
-                SharedStatics.AddMemoryFailPointReservation((long)size);
-                _mustSubtractReservation = true;
-            }
+
+            SharedStatics.AddMemoryFailPointReservation((long)size);
+            _mustSubtractReservation = true;
 #endif
         }
 
@@ -321,10 +318,10 @@ namespace System.Runtime
             Win32Native.MEMORYSTATUSEX memory = new Win32Native.MEMORYSTATUSEX();
             r = Win32Native.GlobalMemoryStatusEx(ref memory);
             if (!r)
-                __Error.WinIOError();
+                throw Win32Marshal.GetExceptionForLastWin32Error();
             availPageFile = memory.availPageFile;
             totalAddressSpaceFree = memory.availVirtual;
-            //Console.WriteLine("Memory gate:  Mem load: {0}%  Available memory (physical + page file): {1} MB  Total free address space: {2} MB  GC Heap: {3} MB", memory.memoryLoad, memory.availPageFile >> 20, memory.availVirtual >> 20, GC.GetTotalMemory(true) >> 20);
+            // Console.WriteLine($"Memory gate:  Mem load: {memory.memoryLoad}%  Available memory (physical + page file): {(memory.availPageFile >> 20)} MB  Total free address space: {memory.availVirtual >> 20} MB  GC Heap: {(GC.GetTotalMemory(true) >> 20)} MB");
         }
 
         // Based on the shouldThrow parameter, this will throw an exception, or 
@@ -339,7 +336,7 @@ namespace System.Runtime
             // know whether VirtualAlloc could succeed.
             ulong freeSpaceAfterGCHeap = MemFreeAfterAddress(null, size);
 
-            BCLDebug.Trace("MEMORYFAILPOINT", "MemoryFailPoint: Checked for free VA space.  Found enough? {0}  Asked for: {1}  Found: {2}", (freeSpaceAfterGCHeap >= size), size, freeSpaceAfterGCHeap);
+            // Console.WriteLine($"MemoryFailPoint: Checked for free VA space.  Found enough? {(freeSpaceAfterGCHeap >= size)}  Asked for: {size}  Found: {freeSpaceAfterGCHeap}");
 
             // We may set these without taking a lock - I don't believe
             // this will hurt, as long as we never increment this number in 
@@ -370,7 +367,7 @@ namespace System.Runtime
             {
                 UIntPtr r = Win32Native.VirtualQuery(address, ref memInfo, sizeOfMemInfo);
                 if (r == UIntPtr.Zero)
-                    __Error.WinIOError();
+                    throw Win32Marshal.GetExceptionForLastWin32Error();
 
                 ulong regionSize = memInfo.RegionSize.ToUInt64();
                 if (memInfo.State == Win32Native.MEM_FREE)
@@ -414,14 +411,9 @@ namespace System.Runtime
             if (_mustSubtractReservation)
             {
                 RuntimeHelpers.PrepareConstrainedRegions();
-                try
-                {
-                }
-                finally
-                {
-                    SharedStatics.AddMemoryFailPointReservation(-((long)_reservedMemory));
-                    _mustSubtractReservation = false;
-                }
+
+                SharedStatics.AddMemoryFailPointReservation(-((long)_reservedMemory));
+                _mustSubtractReservation = false;
             }
 
             /*
@@ -438,7 +430,7 @@ namespace System.Runtime
             */
         }
 
-#if _DEBUG
+#if DEBUG
         [Serializable]
         internal sealed class MemoryFailPointState
         {

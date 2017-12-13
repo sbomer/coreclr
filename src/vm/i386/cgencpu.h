@@ -108,14 +108,6 @@ BOOL Runtime_Test_For_SSE2();
 #define ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE 4
 #define CALLDESCR_ARGREGS                       1   // CallDescrWorker has ArgumentRegister parameter
 
-// Max size of patched TLS helpers
-#ifdef _DEBUG
-// Debug build needs extra space for last error trashing
-#define TLS_GETTER_MAX_SIZE 0x20
-#else
-#define TLS_GETTER_MAX_SIZE 0x10
-#endif
-
 //=======================================================================
 // IMPORTANT: This value is used to figure out how much to allocate
 // for a fixed array of FieldMarshaler's. That means it must be at least
@@ -558,23 +550,11 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
     return TRUE;
 }
 
-#ifndef FEATURE_IMPLICIT_TLS
 //
 // JIT HELPER ALIASING FOR PORTABILITY.
 //
 // Create alias for optimized implementations of helpers provided on this platform
 //
-
-#define JIT_MonEnter         JIT_MonEnterWorker
-#define JIT_MonEnterWorker   JIT_MonEnterWorker
-#define JIT_MonReliableEnter JIT_MonReliableEnter
-#define JIT_MonTryEnter      JIT_MonTryEnter
-#define JIT_MonExit          JIT_MonExitWorker
-#define JIT_MonExitWorker    JIT_MonExitWorker
-#define JIT_MonEnterStatic   JIT_MonEnterStatic
-#define JIT_MonExitStatic    JIT_MonExitStatic
-
-#endif
 
 // optimized static helpers generated dynamically at runtime
 // #define JIT_GetSharedGCStaticBase
@@ -591,4 +571,5 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
 #define JIT_NewCrossContext         JIT_NewCrossContext
 #define JIT_Stelem_Ref              JIT_Stelem_Ref
 #endif // FEATURE_PAL
+
 #endif // __cgenx86_h__

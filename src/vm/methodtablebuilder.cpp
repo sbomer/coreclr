@@ -1484,6 +1484,26 @@ MethodTableBuilder::BuildMethodTableThrowing(
         }
     }
 
+#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_) 
+    // All the funtions in System.Runtime.Intrinsics.X86 are hardware intrinsics.
+    // We specially treat them here to reduce the disk footprint of mscorlib.
+    if (GetModule()->IsSystem() && !bmtGenerics->HasInstantiation())
+    {
+        LPCUTF8 x86className;
+        LPCUTF8 x86nameSpace;
+        HRESULT hr = GetMDImport()->GetNameOfTypeDef(bmtInternal->pType->GetTypeDefToken(), &x86className, &x86nameSpace);
+    
+        if (hr == S_OK && strcmp(x86nameSpace, "System.Runtime.Intrinsics.X86") == 0)
+        {
+            if (IsCompilationProcess())
+            {
+                // Disable AOT compiling for managed implementation of hardware intrinsics in mscorlib.
+                COMPlusThrow(kTypeLoadException, IDS_EE_HWINTRINSIC_NGEN_DISALLOWED);
+            }
+            bmtProp->fIsHardwareIntrinsic = true;
+        }
+    }
+#endif
 
 #ifdef FEATURE_COMINTEROP 
 
@@ -1812,7 +1832,7 @@ MethodTableBuilder::BuildMethodTableThrowing(
             GetHalfBakedClass()->SetIsNotTightlyPacked();
 
 #ifdef FEATURE_HFA
-        CheckForHFA(pByValueClassCache);
+        GetHalfBakedClass()->CheckForHFA(pByValueClassCache);
 #endif
 #ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
 #ifdef FEATURE_HFA
@@ -1834,7 +1854,7 @@ MethodTableBuilder::BuildMethodTableThrowing(
 #ifdef FEATURE_HFA
     if (HasLayout())
     {
-        CheckForNativeHFA();
+        GetHalfBakedClass()->CheckForNativeHFA();
     }
 #endif
 
@@ -1986,7 +2006,22 @@ MethodTableBuilder::BuildMethodTableThrowing(
     {
         pMT->SetICastable();
     }
-#endif // FEATURE_ICASTABLE            
+#endif // FEATURE_ICASTABLE       
+ 
+    // If this type is marked by [Intrinsic] attribute, it may be specially treated by the runtime/compiler
+    // Currently, only SIMD types have [Intrinsic] attribute
+    if ((GetModule()->IsSystem() || GetAssembly()->IsSIMDVectorAssembly()) && IsValueClass() && bmtGenerics->HasInstantiation())
+    {
+        HRESULT hr = GetMDImport()->GetCustomAttributeByName(bmtInternal->pType->GetTypeDefToken(), 
+            g_CompilerServicesIntrinsicAttribute, 
+            NULL, 
+            NULL);
+
+        if (hr == S_OK)
+        {
+            pMT->SetIsIntrinsicType();
+        }
+    }
 
     // Grow the typedef ridmap in advance as we can't afford to
     // fail once we set the resolve bit
@@ -5082,6 +5117,21 @@ MethodTableBuilder::InitNewMethodDesc(
         pNewMD->SetNotInline(true);
     }
 
+    // Check for methods marked as [Intrinsic]
+    if (GetModule()->IsSystem())
+    {
+        HRESULT hr = GetMDImport()->GetCustomAttributeByName(pMethod->GetMethodSignature().GetToken(),
+            g_CompilerServicesIntrinsicAttribute,
+            NULL,
+            NULL);
+
+        if (hr == S_OK || bmtProp->fIsHardwareIntrinsic)
+        {
+            pNewMD->SetIsJitIntrinsic();
+        }
+
+    }
+
     pNewMD->SetSlot(pMethod->GetSlotIndex());
 }
 
@@ -8072,188 +8122,6 @@ void MethodTableBuilder::StoreEightByteClassification(SystemVStructRegisterPassi
 
 #endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
 
-#ifdef FEATURE_HFA
-//---------------------------------------------------------------------------------------
-//
-VOID
-MethodTableBuilder::CheckForHFA(MethodTable ** pByValueClassCache)
-{
-    STANDARD_VM_CONTRACT;
-
-    // This method should be called for valuetypes only
-    _ASSERTE(IsValueClass());
-
-    // No HFAs with explicit layout. There may be cases where explicit layout may be still
-    // eligible for HFA, but it is hard to tell the real intent. Make it simple and just 
-    // unconditionally disable HFAs for explicit layout.
-    if (HasExplicitFieldOffsetLayout())
-        return;
-
-    CorElementType hfaType = ELEMENT_TYPE_END;
-
-    FieldDesc *pFieldDescList = GetHalfBakedClass()->GetFieldDescList();
-    for (UINT i = 0; i < bmtEnumFields->dwNumInstanceFields; i++)
-    {
-        FieldDesc *pFD = &pFieldDescList[i];
-        CorElementType fieldType = pFD->GetFieldType();
-
-        switch (fieldType)
-        {
-        case ELEMENT_TYPE_VALUETYPE:
-            fieldType = pByValueClassCache[i]->GetHFAType();
-            break;
-
-        case ELEMENT_TYPE_R4:
-        case ELEMENT_TYPE_R8:
-            break;
-
-        default:
-            // Not HFA
-            return;
-        }
-
-        // Field type should be a valid HFA type.
-        if (fieldType == ELEMENT_TYPE_END)
-        {
-            return;
-        }
-
-        // Initialize with a valid HFA type.
-        if (hfaType == ELEMENT_TYPE_END)
-        {
-            hfaType = fieldType;
-        }
-        // All field types should be equal.
-        else if (fieldType != hfaType)
-        {
-            return;
-        }
-    }
-
-    if (hfaType == ELEMENT_TYPE_END)
-        return;
-
-    int elemSize = (hfaType == ELEMENT_TYPE_R8) ? sizeof(double) : sizeof(float);
-
-    // Note that we check the total size, but do not perform any checks on number of fields:
-    // - Type of fields can be HFA valuetype itself
-    // - Managed C++ HFA valuetypes have just one <alignment member> of type float to signal that 
-    //   the valuetype is HFA and explicitly specified size
-
-    DWORD totalSize = bmtFP->NumInstanceFieldBytes;
-
-    if (totalSize % elemSize != 0)
-        return;
-
-    // On ARM, HFAs can have a maximum of four fields regardless of whether those are float or double.
-    if (totalSize / elemSize > 4)
-        return;
-
-    // All the above tests passed. It's HFA!
-    GetHalfBakedMethodTable()->SetIsHFA();
-}
-
-//
-// The managed and unmanaged views of the types can differ for non-blitable types. This method
-// mirrors the HFA type computation for the unmanaged view.
-//
-void MethodTableBuilder::CheckForNativeHFA()
-{
-    STANDARD_VM_CONTRACT;
-
-    // No HFAs with inheritance
-    if (!(IsValueClass() || (GetParentMethodTable() == g_pObjectClass)))
-        return;
-
-    // No HFAs with explicit layout. There may be cases where explicit layout may be still
-    // eligible for HFA, but it is hard to tell the real intent. Make it simple and just 
-    // unconditionally disable HFAs for explicit layout.
-    if (HasExplicitFieldOffsetLayout())
-        return;
-
-    const FieldMarshaler *pFieldMarshaler = GetLayoutInfo()->GetFieldMarshalers();
-    UINT  numReferenceFields              = GetLayoutInfo()->GetNumCTMFields();
-
-    CorElementType hfaType = ELEMENT_TYPE_END;
-
-    while (numReferenceFields--)
-    {
-        CorElementType fieldType = ELEMENT_TYPE_END;
-
-        switch (pFieldMarshaler->GetNStructFieldType())
-        {
-        case NFT_COPY4:
-        case NFT_COPY8:
-            fieldType = pFieldMarshaler->GetFieldDesc()->GetFieldType();
-            if (fieldType != ELEMENT_TYPE_R4 && fieldType != ELEMENT_TYPE_R8)
-                return;
-            break;
-
-        case NFT_NESTEDLAYOUTCLASS:
-            fieldType = ((FieldMarshaler_NestedLayoutClass *)pFieldMarshaler)->GetMethodTable()->GetNativeHFAType();
-            break;
-
-        case NFT_NESTEDVALUECLASS:
-            fieldType = ((FieldMarshaler_NestedValueClass *)pFieldMarshaler)->GetMethodTable()->GetNativeHFAType();
-            break;
-
-        case NFT_FIXEDARRAY:
-            fieldType = ((FieldMarshaler_FixedArray *)pFieldMarshaler)->GetElementTypeHandle().GetMethodTable()->GetNativeHFAType();
-            break;
-
-        case NFT_DATE:
-            fieldType = ELEMENT_TYPE_R8;
-            break;
-
-        default:
-            // Not HFA
-            return;
-        }
-
-        // Field type should be a valid HFA type.
-        if (fieldType == ELEMENT_TYPE_END)
-        {
-            return;
-        }
-
-        // Initialize with a valid HFA type.
-        if (hfaType == ELEMENT_TYPE_END)
-        {
-            hfaType = fieldType;
-        }
-        // All field types should be equal.
-        else if (fieldType != hfaType)
-        {
-            return;
-        }
-
-        ((BYTE*&)pFieldMarshaler) += MAXFIELDMARSHALERSIZE;
-    }
-
-    if (hfaType == ELEMENT_TYPE_END)
-        return;
-
-    int elemSize = (hfaType == ELEMENT_TYPE_R8) ? sizeof(double) : sizeof(float);
-
-    // Note that we check the total size, but do not perform any checks on number of fields:
-    // - Type of fields can be HFA valuetype itself
-    // - Managed C++ HFA valuetypes have just one <alignment member> of type float to signal that 
-    //   the valuetype is HFA and explicitly specified size
-
-    DWORD totalSize = GetHalfBakedClass()->GetNativeSize();
-
-    if (totalSize % elemSize != 0)
-        return;
-
-    // On ARM, HFAs can have a maximum of four fields regardless of whether those are float or double.
-    if (totalSize / elemSize > 4)
-        return;
-
-    // All the above tests passed. It's HFA!
-    GetLayoutInfo()->SetNativeHFAType(hfaType);
-}
-#endif // FEATURE_HFA
-
 //---------------------------------------------------------------------------------------
 //
 // make sure that no object fields are overlapped incorrectly and define the
@@ -9557,7 +9425,7 @@ void MethodTableBuilder::CheckForSystemTypes()
     {
         BuildMethodTableThrowException(IDS_CLASSLOAD_BADFORMAT);
     }
-    
+
     if (IsValueClass())
     {
         //

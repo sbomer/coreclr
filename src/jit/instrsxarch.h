@@ -82,6 +82,10 @@ INST4(lea    , "lea"          , 0, IUM_WR, 0, 0, BAD_CODE, BAD_CODE, 0x00008D, B
 
 //    enum     name            FP  updmode rf wf R/M,R/M[reg]  R/M,icon  reg,R/M
 
+// Note that emitter has only partial support for BT. It can only emit the reg,reg form
+// and the registers need to be reversed to get the correct encoding.
+INST3(bt     , "bt"           , 0, IUM_RD, 0, 1, 0x0F00A3, BAD_CODE, 0x0F00A3)
+
 INST3(movsx  , "movsx"        , 0, IUM_WR, 0, 0, BAD_CODE, BAD_CODE, 0x0F00BE)
 #ifdef _TARGET_AMD64_
 INST3(movsxd , "movsxd"       , 0, IUM_WR, 0, 0, BAD_CODE, BAD_CODE, 0x4800000063LL )
@@ -378,6 +382,15 @@ INST3( vzeroupper,   "zeroupper"   , 0, IUM_WR, 0, 0, 0xC577F8,     BAD_CODE, BA
 INST3( vperm2i128,   "perm2i128"   , 0, IUM_WR, 0, 0, BAD_CODE,     BAD_CODE, SSE3A(0x46))   // Permute 128-bit halves of input register
 INST3( vpermq,       "permq"       , 0, IUM_WR, 0, 0, BAD_CODE,     BAD_CODE, SSE3A(0x00))   // Permute 64-bit of input register
 INST3(LAST_AVX_INSTRUCTION, "LAST_AVX_INSTRUCTION",  0, IUM_WR, 0, 0, BAD_CODE, BAD_CODE, BAD_CODE)
+
+// Scalar instructions in SSE4.2
+INST3( crc32,        "crc32"       , 0, IUM_WR, 0, 0, BAD_CODE,     BAD_CODE, PACK4(0xF2, 0x0F, 0x38, 0xF0))
+
+// LZCNT
+INST3( lzcnt,        "lzcnt"       , 0, IUM_WR, 0, 0, BAD_CODE,     BAD_CODE, SSEFLT(0xBD))
+
+// POPCNT
+INST3( popcnt,       "popcnt"      , 0, IUM_WR, 0, 0, BAD_CODE,     BAD_CODE, SSEFLT(0xB8))
 #endif // !LEGACY_BACKEND
 //    enum     name            FP  updmode rf wf R/M,R/M[reg]  R/M,icon
 

@@ -56,7 +56,8 @@ namespace System.Threading.Tasks
         /// Defines the singleton instance for the TPL ETW provider.
         /// The TPL Event provider GUID is {2e5dba47-a3d2-4d16-8ee0-6671ffdcd7b5}.
         /// </summary>
-        public static TplEtwProvider Log = new TplEtwProvider();
+        public static readonly TplEtwProvider Log = new TplEtwProvider();
+
         /// <summary>Prevent external instantiation.  All logging should go through the Log instance.</summary>
         private TplEtwProvider() { }
 
@@ -128,9 +129,14 @@ namespace System.Threading.Tasks
             public const EventKeywords TasksFlowActivityIds = (EventKeywords)0x80;
 
             /// <summary>
+            /// Events related to the happenings of async methods.
+            /// </summary>
+            public const EventKeywords AsyncMethod = (EventKeywords)0x100;
+
+            /// <summary>
             /// TasksSetActivityIds will cause the task operations to set Activity Ids 
             /// This option is incompatible with TasksFlowActivityIds flow is ignored
-            /// if that keyword is set.   This option is likley to be removed in the future
+            /// if that keyword is set.   This option is likely to be removed in the future
             /// </summary>
             public const EventKeywords TasksSetActivityIds = (EventKeywords)0x10000;
 
@@ -360,7 +366,7 @@ namespace System.Threading.Tasks
         }
 
         /// <summary>
-        /// Fired when the the work (method) associated with a TaskWaitEnd completes
+        /// Fired when the work (method) associated with a TaskWaitEnd completes
         /// </summary>
         /// <param name="OriginatingTaskSchedulerID">The scheduler ID.</param>
         /// <param name="OriginatingTaskID">The task ID.</param>
@@ -375,7 +381,7 @@ namespace System.Threading.Tasks
         }
 
         /// <summary>
-        /// Fired when the the work (method) associated with a TaskWaitEnd completes
+        /// Fired when the work (method) associated with a TaskWaitEnd completes
         /// </summary>
         /// <param name="OriginatingTaskSchedulerID">The scheduler ID.</param>
         /// <param name="OriginatingTaskID">The task ID.</param>
@@ -527,6 +533,25 @@ namespace System.Threading.Tasks
             if (Debug)
                 WriteEvent(26, TaskID);
         }
+
+        [NonEvent]
+        public void IncompleteAsyncMethod(IAsyncStateMachineBox stateMachineBox)
+        {
+            System.Diagnostics.Debug.Assert(stateMachineBox != null);
+            if (IsEnabled(EventLevel.Warning, Keywords.AsyncMethod))
+            {
+                IAsyncStateMachine stateMachine = stateMachineBox.GetStateMachineObject();
+                if (stateMachine != null)
+                {
+                    string description = AsyncMethodBuilderCore.GetAsyncStateMachineDescription(stateMachine);
+                    IncompleteAsyncMethod(description);
+                }
+            }
+        }
+
+        [Event(27, Level = EventLevel.Warning, Keywords = Keywords.AsyncMethod)]
+        private void IncompleteAsyncMethod(string stateMachineDescription) =>
+            WriteEvent(27, stateMachineDescription);
 
         /// <summary>
         /// Activity IDs are GUIDS but task IDS are integers (and are not unique across appdomains

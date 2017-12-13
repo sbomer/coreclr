@@ -272,6 +272,7 @@ public:
     DWORD         SpinLimitProcFactor(void)       const {LIMITED_METHOD_CONTRACT;  return dwSpinLimitProcFactor; }
     DWORD         SpinLimitConstant(void)         const {LIMITED_METHOD_CONTRACT;  return dwSpinLimitConstant; }
     DWORD         SpinRetryCount(void)            const {LIMITED_METHOD_CONTRACT;  return dwSpinRetryCount; }
+    DWORD         MonitorSpinCount(void)          const {LIMITED_METHOD_CONTRACT;  return dwMonitorSpinCount; }
 
     // Jit-config
     
@@ -286,6 +287,21 @@ public:
     bool          TieredCompilation(void)           const {LIMITED_METHOD_CONTRACT;  return fTieredCompilation; }
 #endif
 
+#if defined(FEATURE_GDBJIT) && defined(_DEBUG)
+    inline bool ShouldDumpElfOnMethod(LPCUTF8 methodName) const
+    {
+        CONTRACTL {
+            NOTHROW;
+            GC_NOTRIGGER;
+            PRECONDITION(CheckPointer(methodName, NULL_OK));
+        } CONTRACTL_END
+        return RegexOrExactMatch(pszGDBJitElfDump, methodName);
+    }
+#endif // FEATURE_GDBJIT && _DEBUG
+
+#if defined(FEATURE_GDBJIT_FRAME)
+    inline bool ShouldEmitDebugFrame(void) const {LIMITED_METHOD_CONTRACT; return fGDBJitEmitDebugFrame;}
+#endif // FEATURE_GDBJIT_FRAME
     BOOL PInvokeRestoreEsp(BOOL fDefault) const
     {
         LIMITED_METHOD_CONTRACT;
@@ -300,7 +316,6 @@ public:
 
     bool LegacyNullReferenceExceptionPolicy(void)   const {LIMITED_METHOD_CONTRACT;  return fLegacyNullReferenceExceptionPolicy; }
     bool LegacyUnhandledExceptionPolicy(void)       const {LIMITED_METHOD_CONTRACT;  return fLegacyUnhandledExceptionPolicy; }
-    bool LegacyVirtualMethodCallVerification(void)  const {LIMITED_METHOD_CONTRACT;  return fLegacyVirtualMethodCallVerification; }
 
     bool LegacyApartmentInitPolicy(void)            const {LIMITED_METHOD_CONTRACT;  return fLegacyApartmentInitPolicy; }
     bool LegacyComHierarchyVisibility(void)         const {LIMITED_METHOD_CONTRACT;  return fLegacyComHierarchyVisibility; }
@@ -847,7 +862,6 @@ private: //----------------------------------------------------------------
 
     bool fLegacyNullReferenceExceptionPolicy; // Old AV's as NullRef behavior
     bool fLegacyUnhandledExceptionPolicy;     // Old unhandled exception policy (many are swallowed)
-    bool fLegacyVirtualMethodCallVerification;  // Old (pre-whidbey) policy for call (nonvirt) of virtual function
 
 #ifdef FEATURE_CORRUPTING_EXCEPTIONS
     bool fLegacyCorruptedStateExceptionsPolicy;
@@ -965,6 +979,7 @@ private: //----------------------------------------------------------------
     DWORD dwSpinLimitProcFactor;
     DWORD dwSpinLimitConstant;
     DWORD dwSpinRetryCount;
+    DWORD dwMonitorSpinCount;
 
 #ifdef VERIFY_HEAP
     int  iGCHeapVerify;
@@ -1098,6 +1113,13 @@ private: //----------------------------------------------------------------
     bool fTieredCompilation;
 #endif
 
+#if defined(FEATURE_GDBJIT) && defined(_DEBUG)
+    LPCUTF8 pszGDBJitElfDump;
+#endif // FEATURE_GDBJIT && _DEBUG
+
+#if defined(FEATURE_GDBJIT_FRAME)
+    bool fGDBJitEmitDebugFrame;
+#endif
 public:
 
     HRESULT GetConfiguration_DontUse_(__in_z LPCWSTR pKey, ConfigSearch direction, __deref_out_opt LPCWSTR* value);

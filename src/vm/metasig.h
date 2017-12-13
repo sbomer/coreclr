@@ -290,6 +290,11 @@ DEFINE_METASIG(GM(RefByte_T_RetVoid, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, r(b) M(0)
 DEFINE_METASIG(GM(PtrVoid_RetT, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, P(v), M(0)))
 DEFINE_METASIG(GM(PtrVoid_T_RetVoid, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, P(v) M(0), v))
 
+DEFINE_METASIG(GM(RefTFrom_RetRefTTo, IMAGE_CEE_CS_CALLCONV_DEFAULT, 2, r(M(0)), r(M(1))))
+DEFINE_METASIG(GM(Obj_RetT, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, j, M(0)))
+DEFINE_METASIG(GM(RefT_Int_RetRefT, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, r(M(0)) i, r(M(0))))
+DEFINE_METASIG(GM(PtrVoid_Int_RetPtrVoid, IMAGE_CEE_CS_CALLCONV_DEFAULT, 1, P(v) i, P(v)))
+
 DEFINE_METASIG_T(SM(SafeHandle_RefBool_RetIntPtr, C(SAFE_HANDLE) r(F), I ))
 DEFINE_METASIG_T(SM(SafeHandle_RetVoid, C(SAFE_HANDLE), v ))
 
@@ -412,6 +417,8 @@ DEFINE_METASIG(IM(Int_RefIntPtr_RefIntPtr_RefIntPtr_RetVoid, i r(I) r(I) r(I), v
 DEFINE_METASIG(IM(Int_RetStr, i, s))
 DEFINE_METASIG(IM(Int_RetVoid, i, v))
 DEFINE_METASIG(IM(Int_RetBool, i, F))
+DEFINE_METASIG(IM(Int_Int_RetVoid, i i, v))
+DEFINE_METASIG(IM(Int_Int_Int_RetVoid, i i i, v))
 DEFINE_METASIG(IM(Int_Int_Int_Int_RetVoid, i i i i, v))
 DEFINE_METASIG_T(IM(Obj_EventArgs_RetVoid, j C(EVENT_ARGS), v))
 DEFINE_METASIG_T(IM(Obj_UnhandledExceptionEventArgs_RetVoid, j C(UNHANDLED_EVENTARGS), v))

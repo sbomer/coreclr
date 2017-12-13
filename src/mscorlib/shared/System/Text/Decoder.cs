@@ -5,7 +5,6 @@
 using System.Text;
 using System;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 
 namespace System.Text
 {
@@ -42,7 +41,6 @@ namespace System.Text
             {
                 if (value == null)
                     throw new ArgumentNullException(nameof(value));
-                Contract.EndContractBlock();
 
                 // Can't change fallback if buffer is wrong
                 if (_fallbackBuffer != null && _fallbackBuffer.Remaining > 0)
@@ -123,7 +121,6 @@ namespace System.Text
             if (count < 0)
                 throw new ArgumentOutOfRangeException(nameof(count),
                       SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
 
             byte[] arrbyte = new byte[count];
             int index;
@@ -132,6 +129,14 @@ namespace System.Text
                 arrbyte[index] = bytes[index];
 
             return GetCharCount(arrbyte, 0, count);
+        }
+
+        public virtual unsafe int GetCharCount(ReadOnlySpan<byte> bytes, bool flush)
+        {
+            fixed (byte* bytesPtr = &bytes.DangerousGetPinnableReference())
+            {
+                return GetCharCount(bytesPtr, bytes.Length, flush);
+            }
         }
 
         // Decodes a range of bytes in a byte array into a range of characters
@@ -187,7 +192,6 @@ namespace System.Text
             if (byteCount < 0 || charCount < 0)
                 throw new ArgumentOutOfRangeException((byteCount < 0 ? nameof(byteCount) : nameof(charCount)),
                     SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
 
             // Get the byte array to convert
             byte[] arrByte = new byte[byteCount];
@@ -218,6 +222,15 @@ namespace System.Text
                 chars[index] = arrChar[index];
 
             return charCount;
+        }
+
+        public virtual unsafe int GetChars(ReadOnlySpan<byte> bytes, Span<char> chars, bool flush)
+        {
+            fixed (byte* bytesPtr = &bytes.DangerousGetPinnableReference())
+            fixed (char* charsPtr = &chars.DangerousGetPinnableReference())
+            {
+                return GetChars(bytesPtr, bytes.Length, charsPtr, chars.Length, flush);
+            }
         }
 
         // This method is used when the output buffer might not be large enough.
@@ -257,7 +270,6 @@ namespace System.Text
             if (chars.Length - charIndex < charCount)
                 throw new ArgumentOutOfRangeException(nameof(chars),
                       SR.ArgumentOutOfRange_IndexCountBuffer);
-            Contract.EndContractBlock();
 
             bytesUsed = byteCount;
 
@@ -302,7 +314,6 @@ namespace System.Text
             if (byteCount < 0 || charCount < 0)
                 throw new ArgumentOutOfRangeException((byteCount < 0 ? nameof(byteCount) : nameof(charCount)),
                     SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
 
             // Get ready to do it
             bytesUsed = byteCount;
@@ -325,6 +336,15 @@ namespace System.Text
 
             // Oops, we didn't have anything, we'll have to throw an overflow
             throw new ArgumentException(SR.Argument_ConversionOverflow);
+        }
+
+        public virtual unsafe void Convert(ReadOnlySpan<byte> bytes, Span<char> chars, bool flush, out int bytesUsed, out int charsUsed, out bool completed)
+        {
+            fixed (byte* bytesPtr = &bytes.DangerousGetPinnableReference())
+            fixed (char* charsPtr = &chars.DangerousGetPinnableReference())
+            {
+                Convert(bytesPtr, bytes.Length, charsPtr, chars.Length, flush, out bytesUsed, out charsUsed, out completed);
+            }
         }
     }
 }

@@ -220,7 +220,6 @@ typedef interface ICLRAppDomainResourceMonitor ICLRAppDomainResourceMonitor;
 /* header files for imported files */
 #include "unknwn.h"
 #include "gchost.h"
-#include "ivalidator.h"
 
 #ifdef __cplusplus
 extern "C"{
@@ -317,7 +316,7 @@ enum __MIDL___MIDL_itf_mscoree_0000_0000_0002
         STARTUP_ARM	= 0x400000,
         STARTUP_SINGLE_APPDOMAIN	= 0x800000,
         STARTUP_APPX_APP_MODEL	= 0x1000000,
-        STARTUP_DISABLE_RANDOMIZED_STRING_HASHING	= 0x2000000
+        STARTUP_DISABLE_RANDOMIZED_STRING_HASHING	= 0x2000000 // not supported
     } 	STARTUP_FLAGS;
 
 typedef /* [public] */ 

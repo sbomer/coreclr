@@ -52,12 +52,14 @@ function print_usage {
     echo '  --jitforcerelocs                 : Runs the tests with COMPlus_ForceRelocs=1'
     echo '  --jitdisasm                      : Runs jit-dasm on the tests'
     echo '  --gcstresslevel=<n>              : Runs the tests with COMPlus_GCStress=n'
+    echo '  --gcname=<n>                     : Runs the tests with COMPlus_GCName=n'
     echo '  --ilasmroundtrip                 : Runs ilasm round trip on the tests'
     echo '    0: None                                1: GC on all allocs and '"'easy'"' places'
     echo '    2: GC on transitions to preemptive GC  4: GC on every allowable JITed instr'
     echo '    8: GC on every allowable NGEN instr   16: GC only on a unique stack trace'
     echo '  --long-gc                        : Runs the long GC tests'
     echo '  --gcsimulator                    : Runs the GCSimulator tests'
+    echo '  --tieredcompilation              : Runs the tests with COMPlus_EXPERIMENTAL_TieredCompilation=1'
     echo '  --link <ILlink>                  : Runs the tests after linking via ILlink'
     echo '  --show-time                      : Print execution sequence and running time for each test'
     echo '  --no-lf-conversion               : Do not execute LF conversion before running test script'
@@ -122,7 +124,12 @@ case $OSName in
 esac
 
 function xunit_output_begin {
-    xunitOutputPath=$testRootDir/coreclrtests.xml
+    if [ -z "$xunitOutputPath" ]; then
+        xunitOutputPath=$testRootDir/coreclrtests.xml
+    fi
+    if ! [ -e $(basename "$xunitOutputPath") ]; then
+        xunitOutputPath=$testRootDir/coreclrtests.xml
+    fi
     xunitTestOutputPath=${xunitOutputPath}.test
     if [ -e "$xunitOutputPath" ]; then
         rm -f -r "$xunitOutputPath"
@@ -142,6 +149,7 @@ function xunit_output_add_test {
     local outputFilePath=$2
     local testResult=$3 # Pass, Fail, or Skip
     local testScriptExitCode=$4
+    local testRunningTime=$5
 
     local testPath=${scriptFilePath%.sh} # Remove trailing ".sh"
     local testDir=$(dirname "$testPath")
@@ -159,6 +167,9 @@ function xunit_output_add_test {
     line="${line} type=\"${testDir}\""
     line="${line} method=\"${testName}\""
     line="${line} result=\"${testResult}\""
+    if [ -n "$testRunningTime" ] && [ "$testResult" != "Skip" ]; then
+        line="${line} time=\"${testRunningTime}\""
+    fi
 
     if [ "$testResult" == "Pass" ]; then
         line="${line}/>"
@@ -727,25 +738,68 @@ function run_test {
 # Variables for running tests in the background
 if [ `uname` = "NetBSD" ]; then
     NumProc=$(getconf NPROCESSORS_ONLN)
-else
+elif [ `uname` = "Darwin" ]; then
     NumProc=$(getconf _NPROCESSORS_ONLN)
+else
+    if [ -x "$(command -v nproc)" ]; then
+        NumProc=$(nproc --all)
+    elif [ -x "$(command -v getconf)" ]; then
+        NumProc=$(getconf _NPROCESSORS_ONLN)
+    else
+        NumProc=1
+    fi
 fi
 ((maxProcesses = $NumProc * 3 / 2)) # long tests delay process creation, use a few more processors
 
-((nextProcessIndex = 0))
 ((processCount = 0))
 declare -a scriptFilePaths
 declare -a outputFilePaths
 declare -a processIds
 declare -a testStartTimes
+waitProcessIndex=
+pidNone=0
+
+function waitany {
+    local pid
+    local exitcode
+    while true; do
+        for (( i=0; i<$maxProcesses; i++ )); do
+            pid=${processIds[$i]}
+            if [ -z "$pid" ] || [ "$pid" == "$pidNone" ]; then
+                continue
+            fi
+            if ! kill -0 $pid 2>/dev/null; then
+                wait $pid
+                exitcode=$?
+                waitProcessIndex=$i
+                processIds[$i]=$pidNone
+                return $exitcode
+            fi
+        done
+        sleep 0.1
+    done
+}
+
+function get_available_process_index {
+    local pid
+    local i=0
+    for (( i=0; i<$maxProcesses; i++ )); do
+        pid=${processIds[$i]}
+        if [ -z "$pid" ] || [ "$pid" == "$pidNone" ]; then
+            break
+        fi
+    done
+    echo $i
+}
 
 function finish_test {
-    wait ${processIds[$nextProcessIndex]}
+    waitany
     local testScriptExitCode=$?
+    local finishedProcessIndex=$waitProcessIndex
     ((--processCount))
 
-    local scriptFilePath=${scriptFilePaths[$nextProcessIndex]}
-    local outputFilePath=${outputFilePaths[$nextProcessIndex]}
+    local scriptFilePath=${scriptFilePaths[$finishedProcessIndex]}
+    local outputFilePath=${outputFilePaths[$finishedProcessIndex]}
     local scriptFileName=$(basename "$scriptFilePath")
 
     local testEndTime=
@@ -758,7 +812,7 @@ function finish_test {
 
     if [ "$showTime" == "ON" ]; then
         testEndTime=$(date +%s)
-        testRunningTime=$(( $testEndTime - ${testStartTimes[$nextProcessIndex]} ))
+        testRunningTime=$(( $testEndTime - ${testStartTimes[$finishedProcessIndex]} ))
         header=$header$(printf "[%4ds]" $testRunningTime)
     fi
 
@@ -792,19 +846,14 @@ function finish_test {
         done <"$outputFilePath"
     fi
 
-    xunit_output_add_test "$scriptFilePath" "$outputFilePath" "$xunitTestResult" "$testScriptExitCode"
+    xunit_output_add_test "$scriptFilePath" "$outputFilePath" "$xunitTestResult" "$testScriptExitCode" "$testRunningTime"
 }
 
 function finish_remaining_tests {
     # Finish the remaining tests in the order in which they were started
-    if ((nextProcessIndex >= processCount)); then
-        ((nextProcessIndex = 0))
-    fi
     while ((processCount > 0)); do
         finish_test
-        ((nextProcessIndex = (nextProcessIndex + 1) % maxProcesses))
     done
-    ((nextProcessIndex = 0))
 }
 
 function prep_test {
@@ -827,6 +876,7 @@ function prep_test {
 }
 
 function start_test {
+    local nextProcessIndex=$(get_available_process_index)
     local scriptFilePath=$1
     if ((runFailingTestsOnly == 1)) && ! is_failing_test "$scriptFilePath"; then
         return
@@ -838,8 +888,9 @@ function start_test {
         return
     fi
 
-    if ((nextProcessIndex < processCount)); then
+    if ((nextProcessIndex == maxProcesses)); then
         finish_test
+        nextProcessIndex=$(get_available_process_index)
     fi
 
     scriptFilePaths[$nextProcessIndex]=$scriptFilePath
@@ -861,7 +912,6 @@ function start_test {
     fi
     processIds[$nextProcessIndex]=$!
 
-    ((nextProcessIndex = (nextProcessIndex + 1) % maxProcesses))
     ((++processCount))
 }
 
@@ -1019,6 +1069,9 @@ do
             export ILLINK=${i#*=}
             export DoLink=true
             ;;
+        --tieredcompilation)
+            export COMPlus_EXPERIMENTAL_TieredCompilation=1
+            ;;
         --jitdisasm)
             jitdisasm=1
             ;;
@@ -1091,6 +1144,9 @@ do
         --gcstresslevel=*)
             export COMPlus_GCStress=${i#*=}
             ;;            
+        --gcname=*)
+            export COMPlus_GCName=${i#*=}
+            ;;
         --show-time)
             showTime=ON
             ;;

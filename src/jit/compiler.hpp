@@ -175,10 +175,23 @@ inline BOOL genMaxOneBit(unsigned value)
  *  Given a value that has exactly one bit set, return the position of that
  *  bit, in other words return the logarithm in base 2 of the given value.
  */
-
 inline unsigned genLog2(unsigned value)
 {
     return BitPosition(value);
+}
+
+// Given an unsigned 64-bit value, returns the lower 32-bits in unsigned format
+//
+inline unsigned ulo32(unsigned __int64 value)
+{
+    return static_cast<unsigned>(value);
+}
+
+// Given an unsigned 64-bit value, returns the upper 32-bits in unsigned format
+//
+inline unsigned uhi32(unsigned __int64 value)
+{
+    return static_cast<unsigned>(value >> 32);
 }
 
 /*****************************************************************************
@@ -189,8 +202,8 @@ inline unsigned genLog2(unsigned value)
 
 inline unsigned genLog2(unsigned __int64 value)
 {
-    unsigned lo32 = (unsigned)value;
-    unsigned hi32 = (unsigned)(value >> 32);
+    unsigned lo32 = ulo32(value);
+    unsigned hi32 = uhi32(value);
 
     if (lo32 != 0)
     {
@@ -556,7 +569,7 @@ extern const BYTE genTypeSizes[TYP_COUNT];
 template <class T>
 inline unsigned genTypeSize(T type)
 {
-    assert((unsigned)TypeGet(type) < sizeof(genTypeSizes) / sizeof(genTypeSizes[0]));
+    assert((unsigned)TypeGet(type) < _countof(genTypeSizes));
 
     return genTypeSizes[TypeGet(type)];
 }
@@ -571,7 +584,7 @@ extern const BYTE genTypeStSzs[TYP_COUNT];
 
 inline unsigned genTypeStSz(var_types type)
 {
-    assert((unsigned)type < sizeof(genTypeStSzs) / sizeof(genTypeStSzs[0]));
+    assert((unsigned)type < _countof(genTypeStSzs));
 
     return genTypeStSzs[type];
 }
@@ -1038,8 +1051,7 @@ inline GenTreePtr Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, 
  *  that may need to be fixed up).
  */
 
-inline GenTreePtr Compiler::gtNewIconHandleNode(
-    size_t value, unsigned flags, FieldSeqNode* fields, unsigned handle1, void* handle2)
+inline GenTreePtr Compiler::gtNewIconHandleNode(size_t value, unsigned flags, FieldSeqNode* fields)
 {
     GenTreePtr node;
     assert((flags & (GTF_ICON_HDL_MASK | GTF_ICON_FIELD_OFF)) != 0);
@@ -1052,9 +1064,6 @@ inline GenTreePtr Compiler::gtNewIconHandleNode(
 
 #if defined(LATE_DISASM)
     node = new (this, LargeOpOpcode()) GenTreeIntCon(TYP_I_IMPL, value, fields DEBUGARG(/*largeNode*/ true));
-
-    node->gtIntCon.gtIconHdl.gtIconHdl1 = handle1;
-    node->gtIntCon.gtIconHdl.gtIconHdl2 = handle2;
 #else
     node             = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fields);
 #endif
@@ -1069,7 +1078,7 @@ inline GenTreePtr Compiler::gtNewIconHandleNode(
  *  These are versions for each specific type of HANDLE
  */
 
-inline GenTreePtr Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd, unsigned hnd1, void* hnd2)
+inline GenTreePtr Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
 {
     void *embedScpHnd, *pEmbedScpHnd;
 
@@ -1077,12 +1086,12 @@ inline GenTreePtr Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd,
 
     assert((!embedScpHnd) != (!pEmbedScpHnd));
 
-    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_SCOPE_HDL, hnd1, hnd2, scpHnd);
+    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_SCOPE_HDL, scpHnd);
 }
 
 //-----------------------------------------------------------------------------
 
-inline GenTreePtr Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd, unsigned hnd1, void* hnd2)
+inline GenTreePtr Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
 {
     void *embedClsHnd, *pEmbedClsHnd;
 
@@ -1090,12 +1099,12 @@ inline GenTreePtr Compiler::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd, 
 
     assert((!embedClsHnd) != (!pEmbedClsHnd));
 
-    return gtNewIconEmbHndNode(embedClsHnd, pEmbedClsHnd, GTF_ICON_CLASS_HDL, hnd1, hnd2, clsHnd);
+    return gtNewIconEmbHndNode(embedClsHnd, pEmbedClsHnd, GTF_ICON_CLASS_HDL, clsHnd);
 }
 
 //-----------------------------------------------------------------------------
 
-inline GenTreePtr Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd, unsigned hnd1, void* hnd2)
+inline GenTreePtr Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
 {
     void *embedMethHnd, *pEmbedMethHnd;
 
@@ -1103,12 +1112,12 @@ inline GenTreePtr Compiler::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHn
 
     assert((!embedMethHnd) != (!pEmbedMethHnd));
 
-    return gtNewIconEmbHndNode(embedMethHnd, pEmbedMethHnd, GTF_ICON_METHOD_HDL, hnd1, hnd2, methHnd);
+    return gtNewIconEmbHndNode(embedMethHnd, pEmbedMethHnd, GTF_ICON_METHOD_HDL, methHnd);
 }
 
 //-----------------------------------------------------------------------------
 
-inline GenTreePtr Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd, unsigned hnd1, void* hnd2)
+inline GenTreePtr Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
 {
     void *embedFldHnd, *pEmbedFldHnd;
 
@@ -1116,13 +1125,26 @@ inline GenTreePtr Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd, 
 
     assert((!embedFldHnd) != (!pEmbedFldHnd));
 
-    return gtNewIconEmbHndNode(embedFldHnd, pEmbedFldHnd, GTF_ICON_FIELD_HDL, hnd1, hnd2, fldHnd);
+    return gtNewIconEmbHndNode(embedFldHnd, pEmbedFldHnd, GTF_ICON_FIELD_HDL, fldHnd);
 }
 
 /*****************************************************************************/
 
-inline GenTreeCall* Compiler::gtNewHelperCallNode(unsigned helper, var_types type, unsigned flags, GenTreeArgList* args)
+//------------------------------------------------------------------------------
+// gtNewHelperCallNode : Helper to create a call helper node.
+//
+//
+// Arguments:
+//    helper    - Call helper
+//    type      - Type of the node
+//    args      - Call args
+//
+// Return Value:
+//    New CT_HELPER node
+
+inline GenTreeCall* Compiler::gtNewHelperCallNode(unsigned helper, var_types type, GenTreeArgList* args)
 {
+    unsigned     flags  = s_helperCallProperties.NoThrow((CorInfoHelpFunc)helper) ? 0 : GTF_EXCEPT;
     GenTreeCall* result = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
     result->gtFlags |= flags;
 
@@ -1153,6 +1175,23 @@ inline GenTreePtr Compiler::gtNewAllocObjNode(unsigned int         helper,
                                               GenTreePtr           op1)
 {
     GenTreePtr node = new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, clsHnd, op1);
+    return node;
+}
+
+//------------------------------------------------------------------------
+// gtNewRuntimeLookup: Helper to create a runtime lookup node
+//
+// Arguments:
+//    hnd - generic handle being looked up
+//    hndTyp - type of the generic handle
+//    tree - tree for the lookup
+//
+// Return Value:
+//    New GenTreeRuntimeLookup node.
+inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
+{
+    assert(tree != nullptr);
+    GenTree* node = new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(hnd, hndTyp, tree);
     return node;
 }
 
@@ -1226,6 +1265,43 @@ inline GenTreePtr Compiler::gtNewIndexRef(var_types typ, GenTreePtr arrayOp, Gen
     GenTreeIndex* gtIndx = new (this, GT_INDEX) GenTreeIndex(typ, arrayOp, indexOp, genTypeSize(typ));
 
     return gtIndx;
+}
+
+//------------------------------------------------------------------------------
+// gtNewArrLen : Helper to create an array length node.
+//
+//
+// Arguments:
+//    typ      -  Type of the node
+//    arrayOp  -  Array node
+//    lenOffset - Offset of the length field
+//
+// Return Value:
+//    New GT_ARR_LENGTH node
+
+inline GenTreeArrLen* Compiler::gtNewArrLen(var_types typ, GenTree* arrayOp, int lenOffset)
+{
+    GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(typ, arrayOp, lenOffset);
+    static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
+    arrLen->SetIndirExceptionFlags(this);
+    return arrLen;
+}
+
+//------------------------------------------------------------------------------
+// gtNewIndir : Helper to create an indirection node.
+//
+// Arguments:
+//    typ   -  Type of the node
+//    addr  -  Address of the indirection
+//
+// Return Value:
+//    New GT_IND node
+
+inline GenTree* Compiler::gtNewIndir(var_types typ, GenTree* addr)
+{
+    GenTree* indir = gtNewOperNode(GT_IND, typ, addr);
+    indir->SetIndirExceptionFlags(this);
+    return indir;
 }
 
 /*****************************************************************************
@@ -1382,37 +1458,19 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
         gtIntCon.gtFieldSeq = nullptr;
     }
 
+#if !defined(LEGACY_BACKEND) && defined(_TARGET_ARM_)
+    if (oper == GT_MUL_LONG)
+    {
+        // We sometimes bash GT_MUL to GT_MUL_LONG, which converts it from GenTreeOp to GenTreeMultiRegOp.
+        gtMultiRegOp.gtOtherReg = REG_NA;
+        gtMultiRegOp.ClearOtherRegFlags();
+    }
+#endif
+
     if (vnUpdate == CLEAR_VN)
     {
         // Clear the ValueNum field as well.
         gtVNPair.SetBoth(ValueNumStore::NoVN);
-    }
-}
-
-inline void GenTree::CopyFrom(const GenTree* src, Compiler* comp)
-{
-    /* The source may be big only if the target is also a big node */
-
-    assert((gtDebugFlags & GTF_DEBUG_NODE_LARGE) || GenTree::s_gtNodeSizes[src->gtOper] == TREE_NODE_SZ_SMALL);
-    GenTreePtr prev = gtPrev;
-    GenTreePtr next = gtNext;
-
-    RecordOperBashing(OperGet(), src->OperGet()); // nop unless NODEBASH_STATS is enabled
-
-    // The VTable pointer is copied intentionally here
-    memcpy((void*)this, (void*)src, src->GetNodeSize());
-    this->gtPrev = prev;
-    this->gtNext = next;
-#ifdef DEBUG
-    gtSeqNum = 0;
-#endif
-    // Transfer any annotations.
-    if (src->OperGet() == GT_IND && src->gtFlags & GTF_IND_ARR_INDEX)
-    {
-        ArrayInfo arrInfo;
-        bool      b = comp->GetArrayInfoMap()->Lookup(src, &arrInfo);
-        assert(b);
-        comp->GetArrayInfoMap()->Set(this, arrInfo);
     }
 }
 
@@ -1454,7 +1512,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     }
 }
 
-inline void GenTree::CopyFrom(GenTreePtr src)
+inline void GenTree::ReplaceWith(GenTreePtr src)
 {
     RecordOperBashing(OperGet(), src->OperGet()); // nop unless NODEBASH_STATS is enabled
     *this    = *src;
@@ -1512,8 +1570,13 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
     assert(!OperIsConst(oper)); // use ChangeOperLeaf() instead
 
+    unsigned mask = GTF_COMMON_MASK;
+    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
     SetOper(oper, vnUpdate);
-    gtFlags &= GTF_COMMON_MASK;
+    gtFlags &= mask;
 
     // Do "oper"-specific initializations...
     switch (oper)
@@ -1529,8 +1592,13 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
 {
+    unsigned mask = GTF_COMMON_MASK;
+    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
     SetOperRaw(oper); // Trust the caller and don't use SetOper()
-    gtFlags &= GTF_COMMON_MASK;
+    gtFlags &= mask;
 }
 
 /*****************************************************************************
@@ -1561,16 +1629,9 @@ inline bool GenTree::IsVarAddr() const
 
 inline bool GenTree::gtOverflow() const
 {
-#if !defined(_TARGET_64BIT_) && !defined(LEGACY_BACKEND)
-    assert(gtOper == GT_MUL || gtOper == GT_CAST || gtOper == GT_ADD || gtOper == GT_SUB || gtOper == GT_ASG_ADD ||
-           gtOper == GT_ASG_SUB || gtOper == GT_ADD_LO || gtOper == GT_SUB_LO || gtOper == GT_ADD_HI ||
-           gtOper == GT_SUB_HI);
-#else
-    assert(gtOper == GT_MUL || gtOper == GT_CAST || gtOper == GT_ADD || gtOper == GT_SUB || gtOper == GT_ASG_ADD ||
-           gtOper == GT_ASG_SUB);
-#endif
+    assert(OperMayOverflow());
 
-    if (gtFlags & GTF_OVERFLOW)
+    if ((gtFlags & GTF_OVERFLOW) != 0)
     {
         assert(varTypeIsIntegral(TypeGet()));
 
@@ -1584,15 +1645,7 @@ inline bool GenTree::gtOverflow() const
 
 inline bool GenTree::gtOverflowEx() const
 {
-    if (gtOper == GT_MUL || gtOper == GT_CAST || gtOper == GT_ADD || gtOper == GT_SUB ||
-#if !defined(_TARGET_64BIT_) && !defined(LEGACY_BACKEND)
-        gtOper == GT_ADD_HI || gtOper == GT_SUB_HI ||
-#endif
-        gtOper == GT_ASG_ADD || gtOper == GT_ASG_SUB)
-    {
-        return gtOverflow();
-    }
-    return false;
+    return OperMayOverflow() && gtOverflow();
 }
 
 /*
@@ -3717,7 +3770,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree()
 
     assert(lpIterTree);
 
-    assert(lpIterTree->OperKind() & GTK_ASGOP); // +=, -=, etc or = +, = -, etc
+    assert(lpIterTree->OperIsAssignment());
 
     if (lpIterTree->OperGet() == GT_ASG)
     {
@@ -4258,16 +4311,6 @@ __forceinline void* Compiler::compGetMemArray(size_t numElem, size_t elemSize, C
     return compGetMem(numElem * elemSize, cmk);
 }
 
-__forceinline void* Compiler::compGetMemArrayA(size_t numElem, size_t elemSize, CompMemKind cmk)
-{
-    if (numElem > (MAX_MEMORY_PER_ALLOCATION / elemSize))
-    {
-        NOMEM();
-    }
-
-    return compGetMemA(numElem * elemSize, cmk);
-}
-
 /******************************************************************************
  *
  *  Roundup the allocated size so that if this memory block is aligned,
@@ -4275,30 +4318,9 @@ __forceinline void* Compiler::compGetMemArrayA(size_t numElem, size_t elemSize, 
  *  The JIT will always try to keep all the blocks aligned.
  */
 
-inline void* Compiler::compGetMemA(size_t sz, CompMemKind cmk)
-{
-    assert(sz);
-
-    size_t allocSz = roundUp(sz, sizeof(size_t));
-
-#if MEASURE_MEM_ALLOC
-    genMemStats.AddAlloc(allocSz, cmk);
-#endif
-
-    void* ptr = compAllocator->allocateMemory(allocSz);
-
-    // Verify that the current block is aligned. Only then will the next
-    // block allocated be on an aligned boundary.
-    assert((size_t(ptr) & (sizeof(size_t) - 1)) == 0);
-
-    return ptr;
-}
-
 inline void Compiler::compFreeMem(void* ptr)
 {
 }
-
-#define compFreeMem(ptr) compFreeMem((void*)ptr)
 
 inline bool Compiler::compIsProfilerHookNeeded()
 {
@@ -4650,6 +4672,28 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 }
 
 #endif // MEASURE_CLRAPI_CALLS
+
+//------------------------------------------------------------------------------
+// fgStructTempNeedsExplicitZeroInit : Check whether temp struct needs
+//                                     explicit zero initialization in this basic block.
+//
+// Arguments:
+//    varDsc -           struct local var description
+//    block  -           basic block to check
+//
+// Returns:
+//             true if the struct temp needs explicit zero-initialization in this basic block;
+//             false otherwise
+//
+// Notes:
+//     Structs with GC pointer fields are fully zero-initialized in the prolog if compInitMem is true.
+//     Therefore, we don't need to insert zero-initialization if this block is not in a loop.
+
+bool Compiler::fgStructTempNeedsExplicitZeroInit(LclVarDsc* varDsc, BasicBlock* block)
+{
+    bool containsGCPtr = (varDsc->lvStructGcCount > 0);
+    return (!containsGCPtr || !info.compInitMem || ((block->bbFlags & BBF_BACKWARD_JUMP) != 0));
+}
 
 /*****************************************************************************/
 bool Compiler::fgExcludeFromSsa(unsigned lclNum)
@@ -5044,16 +5088,6 @@ inline void* __cdecl operator new[](size_t sz, Compiler* context, CompMemKind cm
 inline void* __cdecl operator new(size_t sz, void* p, const jitstd::placement_t& /* syntax_difference */)
 {
     return p;
-}
-
-inline void* __cdecl operator new(size_t sz, IAllocator* alloc)
-{
-    return alloc->Alloc(sz);
-}
-
-inline void* __cdecl operator new[](size_t sz, IAllocator* alloc)
-{
-    return alloc->Alloc(sz);
 }
 
 /*****************************************************************************/

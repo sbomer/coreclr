@@ -72,27 +72,6 @@ BOOL Debug_IsLockedViaThreadSuspension()
 }
 #endif // _DEBUG
 
-#if defined(FEATURE_MERGE_JIT_AND_ENGINE) && defined(FEATURE_IMPLICIT_TLS)
-void* theJitTls;
-
-extern "C"
-{
-
-void* GetJitTls()
-{
-    LIMITED_METHOD_CONTRACT
-
-    return theJitTls;
-}
-void SetJitTls(void* v)
-{
-    LIMITED_METHOD_CONTRACT
-    theJitTls = v;
-}
-
-}
-#endif
-
 //---------------------------------------------------------------------------------------
 //
 // All locks are nops because of there is always only one thread.
@@ -284,7 +263,8 @@ BOOL Runtime_Test_For_SSE2()
 #endif
 
 #ifdef _TARGET_AMD64_
-INT32 rel32UsingJumpStub(INT32 UNALIGNED * pRel32, PCODE target, MethodDesc *pMethod, LoaderAllocator *pLoaderAllocator /* = NULL */)
+INT32 rel32UsingJumpStub(INT32 UNALIGNED * pRel32, PCODE target, MethodDesc *pMethod,
+    LoaderAllocator *pLoaderAllocator /* = NULL */, bool throwOnOutOfMemoryWithinRange /*= true*/)
 {
     // crossgen does not have jump stubs
     return 0;

@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-#if AMD64 || (BIT32 && !ARM)
+#if AMD64 || ARM64 || (BIT32 && !ARM)
 #define HAS_CUSTOM_BLOCKS
 #endif
 
@@ -16,7 +16,6 @@ namespace System
     using System.Runtime.InteropServices;
     using System.Runtime.Versioning;
     using System.Diagnostics;
-    using System.Diagnostics.Contracts;
     using System.Security;
     using System.Runtime;
 
@@ -35,14 +34,6 @@ namespace System
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern void BlockCopy(Array src, int srcOffset,
             Array dst, int dstOffset, int count);
-
-        // A very simple and efficient memmove that assumes all of the
-        // parameter validation has already been done.  The count and offset
-        // parameters here are in bytes.  If you want to use traditional
-        // array element indices and counts, use Array.Copy.
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal static extern void InternalBlockCopy(Array src, int srcOffsetBytes,
-            Array dst, int dstOffsetBytes, int byteCount);
 
         // This is ported from the optimized CRT assembly in memchr.asm. The JIT generates 
         // pretty good code here and this ends up being within a couple % of the CRT asm.
@@ -244,7 +235,6 @@ namespace System
         // This behavioral difference is unfortunate but intentional because
         // 1. This method is given access to other internal dlls and this close to release we do not want to change it.
         // 2. It is difficult to get this right for arm and again due to release dates we would like to visit it later.
-        [FriendAccessAllowed]
 #if ARM
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal unsafe static extern void Memcpy(byte* dest, byte* src, int len);
@@ -262,6 +252,17 @@ namespace System
         {
 #if AMD64 || (BIT32 && !ARM)
             const nuint CopyThreshold = 2048;
+#elif ARM64
+#if PLATFORM_WINDOWS
+            // Determined optimal value for Windows.
+            // https://github.com/dotnet/coreclr/issues/13843
+            const nuint CopyThreshold = UInt64.MaxValue;
+#else // PLATFORM_WINDOWS
+            // Managed code is currently faster than glibc unoptimized memmove
+            // TODO-ARM64-UNIX-OPT revisit when glibc optimized memmove is in Linux distros
+            // https://github.com/dotnet/coreclr/issues/13844
+            const nuint CopyThreshold = UInt64.MaxValue;
+#endif // PLATFORM_WINDOWS
 #else
             const nuint CopyThreshold = 512;
 #endif // AMD64 || (BIT32 && !ARM)
@@ -369,7 +370,6 @@ namespace System
             {
                 goto PInvoke;
             }
-
             // Copy 64-bytes at a time until the remainder is less than 64.
             // If remainder is greater than 16 bytes, then jump to MCPY00. Otherwise, unconditionally copy the last 16 bytes and return.
             Debug.Assert(len > 64 && len <= CopyThreshold);
@@ -438,7 +438,6 @@ namespace System
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         extern private unsafe static void __Memmove(byte* dest, byte* src, nuint len);
 
         // The attributes on this method are chosen for best JIT performance. 

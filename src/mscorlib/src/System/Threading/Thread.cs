@@ -28,7 +28,6 @@ namespace System.Threading
     using System.Security;
     using System.Runtime.Versioning;
     using System.Diagnostics;
-    using System.Diagnostics.Contracts;
 
     internal delegate Object InternalCrossContextDelegate(Object[] args);
 
@@ -128,7 +127,12 @@ namespace System.Threading
 
         private IntPtr DONT_USE_InternalThread;        // Pointer
         private int m_Priority;                     // INT32
-        private int m_ManagedThreadId;              // INT32
+
+        // The following field is required for interop with the VS Debugger
+        // Prior to making any changes to this field, please reach out to the VS Debugger 
+        // team to make sure that your changes are not going to prevent the debugger
+        // from working.
+        private int _managedThreadId;              // INT32
 
 #pragma warning restore 414
 #pragma warning restore 169
@@ -161,7 +165,6 @@ namespace System.Threading
             {
                 throw new ArgumentNullException(nameof(start));
             }
-            Contract.EndContractBlock();
             SetStartHelper((Delegate)start, 0);  //0 will setup Thread with default stackSize
         }
 
@@ -173,7 +176,6 @@ namespace System.Threading
             }
             if (0 > maxStackSize)
                 throw new ArgumentOutOfRangeException(nameof(maxStackSize), SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
             SetStartHelper((Delegate)start, maxStackSize);
         }
         public Thread(ParameterizedThreadStart start)
@@ -182,7 +184,6 @@ namespace System.Threading
             {
                 throw new ArgumentNullException(nameof(start));
             }
-            Contract.EndContractBlock();
             SetStartHelper((Delegate)start, 0);
         }
 
@@ -194,13 +195,12 @@ namespace System.Threading
             }
             if (0 > maxStackSize)
                 throw new ArgumentOutOfRangeException(nameof(maxStackSize), SR.ArgumentOutOfRange_NeedNonNegNum);
-            Contract.EndContractBlock();
             SetStartHelper((Delegate)start, maxStackSize);
         }
 
         public override int GetHashCode()
         {
-            return m_ManagedThreadId;
+            return _managedThreadId;
         }
 
         extern public new int ManagedThreadId
@@ -217,7 +217,7 @@ namespace System.Threading
             // This should never happen under normal circumstances. m_assembly is always assigned before it is handed out to the user.
             // There are ways how to create an unitialized objects through remoting, etc. Avoid AVing in the EE by throwing a nice
             // exception here.
-            if (thread.IsNull())
+            if (thread == IntPtr.Zero)
                 throw new ArgumentException(null, SR.Argument_InvalidHandle);
 
             return new ThreadHandle(thread);
@@ -337,7 +337,6 @@ namespace System.Threading
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern bool YieldInternal();
 
         internal static new bool Yield()
@@ -349,7 +348,6 @@ namespace System.Threading
         {
             get
             {
-                Contract.Ensures(Contract.Result<Thread>() != null);
                 return GetCurrentThreadNative();
             }
         }
@@ -434,7 +432,6 @@ namespace System.Threading
         {
             get
             {
-                Contract.Ensures(Contract.Result<CultureInfo>() != null);
                 return CultureInfo.CurrentUICulture;
             }
 
@@ -468,14 +465,11 @@ namespace System.Threading
         {
             get
             {
-                Contract.Ensures(Contract.Result<CultureInfo>() != null);
                 return CultureInfo.CurrentCulture;
             }
 
             set
             {
-                Contract.EndContractBlock();
-
                 // If you add more pre-conditions to this method, check to see if you also need to 
                 // add them to CultureInfo.DefaultThreadCurrentCulture.set.
 
@@ -487,7 +481,6 @@ namespace System.Threading
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern void nativeInitCultureAccessors();
 
         /*======================================================================
@@ -501,8 +494,6 @@ namespace System.Threading
 
         internal static AppDomain GetDomain()
         {
-            Contract.Ensures(Contract.Result<AppDomain>() != null);
-
 
             AppDomain ad;
             ad = GetFastDomainInternal();
@@ -544,7 +535,6 @@ namespace System.Threading
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern void InformThreadNameChange(ThreadHandle t, String name, int len);
 
     } // End of class Thread

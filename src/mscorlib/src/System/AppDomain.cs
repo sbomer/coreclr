@@ -163,7 +163,6 @@ namespace System
 
 #if FEATURE_APPX
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         [return: MarshalAs(UnmanagedType.I4)]
         private static extern APPX_FLAGS nGetAppXFlags();
 #endif
@@ -175,7 +174,7 @@ namespace System
         {
             // This should never happen under normal circumstances. However, there ar ways to create an
             // uninitialized object through remoting, etc.
-            if (_pDomain.IsNull())
+            if (_pDomain == IntPtr.Zero)
             {
                 throw new InvalidOperationException(SR.Argument_InvalidHandle);
             }
@@ -226,7 +225,7 @@ namespace System
 
         /// <summary>
         ///     Initialize the compatibility flags to non-NULL values.
-        ///     This method is also called from the VM when the default domain dosen't have a domain manager.
+        ///     This method is also called from the VM when the default domain doesn't have a domain manager.
         /// </summary>
         private void InitializeCompatibilityFlags()
         {
@@ -243,8 +242,6 @@ namespace System
             // case where the compat flags have been setup.
             Debug.Assert(!_compatFlagsInitialized);
             _compatFlagsInitialized = true;
-
-            CompatibilitySwitches.InitializeSwitches();
         }
 
         /// <summary>
@@ -321,7 +318,6 @@ namespace System
         {
             get
             {
-                Contract.Ensures(Contract.Result<AppDomain>() != null);
                 return Thread.GetDomain();
             }
         }
@@ -372,7 +368,6 @@ namespace System
         {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
-            Contract.EndContractBlock();
 
             lock (((ICollection)LocalStore).SyncRoot)
             {
@@ -385,7 +380,6 @@ namespace System
         {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
-            Contract.EndContractBlock();
 
             object data;
             lock (((ICollection)LocalStore).SyncRoot)
@@ -398,19 +392,18 @@ namespace System
         }
 
         [Obsolete("AppDomain.GetCurrentThreadId has been deprecated because it does not provide a stable Id when managed threads are running on fibers (aka lightweight threads). To get a stable identifier for a managed thread, use the ManagedThreadId property on Thread.  http://go.microsoft.com/fwlink/?linkid=14202", false)]
-        [DllImport(Microsoft.Win32.Win32Native.KERNEL32)]
+        [DllImport(Interop.Libraries.Kernel32)]
         public static extern int GetCurrentThreadId();
 
         private AppDomain()
         {
-            throw new NotSupportedException(SR.GetResourceString(ResId.NotSupported_Constructor));
+            throw new NotSupportedException(SR.NotSupported_Constructor);
         }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern void nCreateContext();
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern void nSetupBindingPaths(String trustedPlatformAssemblies, String platformResourceRoots, String appPath, String appNiPaths, String appLocalWinMD);
 
         internal void SetupBindingPaths(String trustedPlatformAssemblies, String platformResourceRoots, String appPath, String appNiPaths, String appLocalWinMD)
@@ -627,12 +620,11 @@ namespace System
         }
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
-        [SuppressUnmanagedCodeSecurity]
         private static extern void nSetNativeDllSearchDirectories(string paths);
 
         private void SetupFusionStore(AppDomainSetup info, AppDomainSetup oldInfo)
         {
-            Contract.Requires(info != null);
+            Debug.Assert(info != null);
 
             if (info.ApplicationBase == null)
             {
@@ -694,9 +686,6 @@ namespace System
 
         private static Object Setup(Object arg)
         {
-            Contract.Requires(arg != null && arg is Object[]);
-            Contract.Requires(((Object[])arg).Length >= 8);
-
             Object[] args = (Object[])arg;
             String friendlyName = (String)args[0];
             AppDomainSetup setup = (AppDomainSetup)args[1];
@@ -874,7 +863,7 @@ namespace System
 
     /// <summary>
     ///     Handle used to marshal an AppDomain to the VM (eg QCall). When marshaled via a QCall, the target
-    ///     method in the VM will recieve a QCall::AppDomainHandle parameter.
+    ///     method in the VM will receive a QCall::AppDomainHandle parameter.
     /// </summary>
     internal struct AppDomainHandle
     {

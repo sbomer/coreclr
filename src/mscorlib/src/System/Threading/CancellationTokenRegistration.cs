@@ -10,7 +10,7 @@ namespace System.Threading
     /// <remarks>
     /// To unregister a callback, dispose the corresponding Registration instance.
     /// </remarks>
-    public struct CancellationTokenRegistration : IEquatable<CancellationTokenRegistration>, IDisposable
+    public readonly struct CancellationTokenRegistration : IEquatable<CancellationTokenRegistration>, IDisposable
     {
         private readonly long _id;
         private readonly CancellationTokenSource.CallbackNode _node;
@@ -35,6 +35,13 @@ namespace System.Threading
                 WaitForCallbackIfNecessary();
             }
         }
+
+        /// <summary>
+        /// Gets the <see cref="CancellationToken"/> with which this registration is associated.  If the
+        /// registration isn't associated with a token (such as after the registration has been disposed),
+        /// this will return a default token.
+        /// </summary>
+        public CancellationToken Token => _node?.Partition.Source.Token ?? default(CancellationToken);
 
         /// <summary>
         /// Disposes of the registration and unregisters the target callback from the associated 

@@ -25,7 +25,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 
 namespace System.Threading.Tasks
@@ -164,7 +163,7 @@ namespace System.Threading.Tasks
         /// <param name="segment">The segment in which to first attempt to store the item.</param>
         private void EnqueueSlow(T item, ref Segment segment)
         {
-            Contract.Requires(segment != null, "Expected a non-null segment.");
+            Debug.Assert(segment != null, "Expected a non-null segment.");
 
             if (segment.m_state.m_firstCopy != segment.m_state.m_first)
             {
@@ -220,8 +219,8 @@ namespace System.Threading.Tasks
         /// <returns>true if an item could be dequeued; otherwise, false.</returns>
         private bool TryDequeueSlow(ref Segment segment, ref T[] array, out T result)
         {
-            Contract.Requires(segment != null, "Expected a non-null segment.");
-            Contract.Requires(array != null, "Expected a non-null item array.");
+            Debug.Assert(segment != null, "Expected a non-null segment.");
+            Debug.Assert(array != null, "Expected a non-null item array.");
 
             if (segment.m_state.m_last != segment.m_state.m_lastCopy)
             {
@@ -322,7 +321,7 @@ namespace System.Threading.Tasks
             /// <param name="size">The size to use for this segment.</param>
             internal Segment(int size)
             {
-                Contract.Requires((size & (size - 1)) == 0, "Size must be a power of 2");
+                Debug.Assert((size & (size - 1)) == 0, "Size must be a power of 2");
                 m_array = new T[size];
             }
         }
@@ -332,7 +331,7 @@ namespace System.Threading.Tasks
         private struct SegmentState
         {
             /// <summary>Padding to reduce false sharing between the segment's array and m_first.</summary>
-            internal PaddingFor32 m_pad0;
+            internal Internal.PaddingFor32 m_pad0;
 
             /// <summary>The index of the current head in the segment.</summary>
             internal volatile int m_first;
@@ -340,7 +339,7 @@ namespace System.Threading.Tasks
             internal int m_lastCopy; // not volatile as read and written by the producer, except for IsEmpty, and there m_lastCopy is only read after reading the volatile m_first
 
             /// <summary>Padding to reduce false sharing between the first and last.</summary>
-            internal PaddingFor32 m_pad1;
+            internal Internal.PaddingFor32 m_pad1;
 
             /// <summary>A copy of the current head index.</summary>
             internal int m_firstCopy; // not voliatle as only read and written by the consumer thread
@@ -348,7 +347,7 @@ namespace System.Threading.Tasks
             internal volatile int m_last;
 
             /// <summary>Padding to reduce false sharing with the last and what's after the segment.</summary>
-            internal PaddingFor32 m_pad2;
+            internal Internal.PaddingFor32 m_pad2;
         }
 
         /// <summary>Debugger type proxy for a SingleProducerSingleConsumerQueue of T.</summary>
@@ -361,22 +360,9 @@ namespace System.Threading.Tasks
             /// <param name="enumerable">The queue being debugged.</param>
             public SingleProducerSingleConsumerQueue_DebugView(SingleProducerSingleConsumerQueue<T> queue)
             {
-                Contract.Requires(queue != null, "Expected a non-null queue.");
+                Debug.Assert(queue != null, "Expected a non-null queue.");
                 m_queue = queue;
             }
         }
-    }
-
-    /// <summary>A placeholder class for common padding constants and eventually routines.</summary>
-    internal static class PaddingHelpers
-    {
-        /// <summary>A size greater than or equal to the size of the most common CPU cache lines.</summary>
-        internal const int CACHE_LINE_SIZE = 128;
-    }
-
-    /// <summary>Padding structure used to minimize false sharing in SingleProducerSingleConsumerQueue{T}.</summary>
-    [StructLayout(LayoutKind.Explicit, Size = PaddingHelpers.CACHE_LINE_SIZE - sizeof(Int32))] // Based on common case of 64-byte cache lines
-    internal struct PaddingFor32
-    {
     }
 }

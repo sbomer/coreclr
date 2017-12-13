@@ -10,9 +10,7 @@
 
 #ifdef FEATURE_PERFTRACING
 
-// {5291C09C-2660-4D6A-83A3-C383FD020DEC}
-const GUID EventPipeConfiguration::s_configurationProviderID =
-    { 0x5291c09c, 0x2660, 0x4d6a, { 0x83, 0xa3, 0xc3, 0x83, 0xfd, 0x2, 0xd, 0xec } };
+const WCHAR* EventPipeConfiguration::s_configurationProviderName = W("Microsoft-DotNETCore-EventPipeConfiguration");
 
 EventPipeConfiguration::EventPipeConfiguration()
 {
@@ -35,6 +33,12 @@ EventPipeConfiguration::~EventPipeConfiguration()
     }
     CONTRACTL_END;
 
+    if(m_pConfigProvider != NULL)
+    {
+        delete(m_pConfigProvider);
+        m_pConfigProvider = NULL;
+    }
+
     if(m_pEnabledProviderList != NULL)
     {
         delete(m_pEnabledProviderList);
@@ -43,6 +47,18 @@ EventPipeConfiguration::~EventPipeConfiguration()
 
     if(m_pProviderList != NULL)
     {
+        // Take the lock before manipulating the provider list.
+        CrstHolder _crst(EventPipe::GetLock());
+
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
+        {
+            // We don't delete provider itself because it can be in-use
+            SListElem<EventPipeProvider*> *pCurElem = pElem;
+            pElem = m_pProviderList->GetNext(pElem);
+            delete(pCurElem);
+        }
+
         delete(m_pProviderList);
         m_pProviderList = NULL;
     }
@@ -59,7 +75,7 @@ void EventPipeConfiguration::Initialize()
     CONTRACTL_END;
 
     // Create the configuration provider.
-    m_pConfigProvider = EventPipe::CreateProvider(s_configurationProviderID);
+    m_pConfigProvider = CreateProvider(SL(s_configurationProviderName), NULL, NULL);
 
     // Create the metadata event.
     m_pMetadataEvent = m_pConfigProvider->AddEvent(
@@ -69,6 +85,49 @@ void EventPipeConfiguration::Initialize()
         EventPipeEventLevel::LogAlways,
         false); /* needStack */
 }
+
+EventPipeProvider* EventPipeConfiguration::CreateProvider(const SString &providerName, EventPipeCallback pCallbackFunction, void *pCallbackData)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    // Allocate a new provider.
+    EventPipeProvider *pProvider = new EventPipeProvider(this, providerName, pCallbackFunction, pCallbackData);
+
+    // Register the provider with the configuration system.
+    RegisterProvider(*pProvider);
+
+    return pProvider;
+}
+
+void EventPipeConfiguration::DeleteProvider(EventPipeProvider *pProvider)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(pProvider != NULL);
+    }
+    CONTRACTL_END;
+
+    if (pProvider == NULL)
+    {
+        return;
+    }
+
+    // Unregister the provider.
+    UnregisterProvider(*pProvider);
+
+    // Free the provider itself.
+    delete(pProvider);
+}
+
 
 bool EventPipeConfiguration::RegisterProvider(EventPipeProvider &provider)
 {
@@ -84,14 +143,18 @@ bool EventPipeConfiguration::RegisterProvider(EventPipeProvider &provider)
     CrstHolder _crst(EventPipe::GetLock());
 
     // See if we've already registered this provider.
-    EventPipeProvider *pExistingProvider = GetProviderNoLock(provider.GetProviderID());
+    EventPipeProvider *pExistingProvider = GetProviderNoLock(provider.GetProviderName());
     if(pExistingProvider != NULL)
     {
         return false;
     }
 
-    // The provider has not been registered, so register it.
-    m_pProviderList->InsertTail(new SListElem<EventPipeProvider*>(&provider));
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
+    {
+        // The provider has not been registered, so register it.
+        m_pProviderList->InsertTail(new SListElem<EventPipeProvider*>(&provider));
+    }
 
     // Set the provider configuration and enable it if we know anything about the provider before it is registered.
     if(m_pEnabledProviderList != NULL)
@@ -122,31 +185,36 @@ bool EventPipeConfiguration::UnregisterProvider(EventPipeProvider &provider)
     // Take the lock before manipulating the provider list.
     CrstHolder _crst(EventPipe::GetLock());
 
-    // Find the provider.
-    SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
-    while(pElem != NULL)
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
     {
-        if(pElem->GetValue() == &provider)
+        // Find the provider.
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
         {
-            break;
+            if(pElem->GetValue() == &provider)
+            {
+                break;
+            }
+
+            pElem = m_pProviderList->GetNext(pElem);
         }
 
-        pElem = m_pProviderList->GetNext(pElem);
-    }
-
-    // If we found the provider, remove it.
-    if(pElem != NULL)
-    {
-        if(m_pProviderList->FindAndRemove(pElem) != NULL)
+        // If we found the provider, remove it.
+        if(pElem != NULL)
         {
-            return true;
+            if(m_pProviderList->FindAndRemove(pElem) != NULL)
+            {
+                delete(pElem);
+                return true;
+            }
         }
     }
 
     return false;
 }
 
-EventPipeProvider* EventPipeConfiguration::GetProvider(const GUID &providerID)
+EventPipeProvider* EventPipeConfiguration::GetProvider(const SString &providerName)
 {
     CONTRACTL
     {
@@ -160,10 +228,10 @@ EventPipeProvider* EventPipeConfiguration::GetProvider(const GUID &providerID)
     // modify the list.
     CrstHolder _crst(EventPipe::GetLock());
 
-    return GetProviderNoLock(providerID);
+    return GetProviderNoLock(providerName);
 }
 
-EventPipeProvider* EventPipeConfiguration::GetProviderNoLock(const GUID &providerID)
+EventPipeProvider* EventPipeConfiguration::GetProviderNoLock(const SString &providerName)
 {
     CONTRACTL
     {
@@ -174,16 +242,20 @@ EventPipeProvider* EventPipeConfiguration::GetProviderNoLock(const GUID &provide
     }
     CONTRACTL_END;
 
-    SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
-    while(pElem != NULL)
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
     {
-        EventPipeProvider *pProvider = pElem->GetValue();
-        if(pProvider->GetProviderID() == providerID)
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
         {
-            return pProvider;
-        }
+            EventPipeProvider *pProvider = pElem->GetValue();
+            if(pProvider->GetProviderName().Equals(providerName))
+            {
+                return pProvider;
+            }
 
-        pElem = m_pProviderList->GetNext(pElem);
+            pElem = m_pProviderList->GetNext(pElem);
+        }
     }
 
     return NULL;
@@ -225,24 +297,27 @@ void EventPipeConfiguration::Enable(
     m_pEnabledProviderList = new EventPipeEnabledProviderList(pProviders, static_cast<unsigned int>(numProviders));
     m_enabled = true;
 
-    SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
-    while(pElem != NULL)
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
     {
-        EventPipeProvider *pProvider = pElem->GetValue();
-
-        // Enable the provider if it has been configured.
-        EventPipeEnabledProvider *pEnabledProvider = m_pEnabledProviderList->GetEnabledProvider(pProvider);
-        if(pEnabledProvider != NULL)
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
         {
-            pProvider->SetConfiguration(
-                true /* providerEnabled */,
-                pEnabledProvider->GetKeywords(),
-                pEnabledProvider->GetLevel());
+            EventPipeProvider *pProvider = pElem->GetValue();
+
+            // Enable the provider if it has been configured.
+            EventPipeEnabledProvider *pEnabledProvider = m_pEnabledProviderList->GetEnabledProvider(pProvider);
+            if(pEnabledProvider != NULL)
+            {
+                pProvider->SetConfiguration(
+                    true /* providerEnabled */,
+                    pEnabledProvider->GetKeywords(),
+                    pEnabledProvider->GetLevel());
+            }
+
+            pElem = m_pProviderList->GetNext(pElem);
         }
-
-        pElem = m_pProviderList->GetNext(pElem);
     }
-
 }
 
 void EventPipeConfiguration::Disable()
@@ -257,13 +332,17 @@ void EventPipeConfiguration::Disable()
     }
     CONTRACTL_END;
 
-    SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
-    while(pElem != NULL)
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
     {
-        EventPipeProvider *pProvider = pElem->GetValue();
-        pProvider->SetConfiguration(false /* providerEnabled */, 0 /* keywords */, EventPipeEventLevel::Critical /* level */);
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
+        {
+            EventPipeProvider *pProvider = pElem->GetValue();
+            pProvider->SetConfiguration(false /* providerEnabled */, 0 /* keywords */, EventPipeEventLevel::Critical /* level */);
 
-        pElem = m_pProviderList->GetNext(pElem);
+            pElem = m_pProviderList->GetNext(pElem);
+        }
     }
 
     m_enabled = false;
@@ -305,8 +384,8 @@ void EventPipeConfiguration::EnableRundown()
     _ASSERTE(m_pEnabledProviderList == NULL);
     const unsigned int numRundownProviders = 2;
     EventPipeProviderConfiguration rundownProviders[numRundownProviders];
-    rundownProviders[0] = EventPipeProviderConfiguration(W("e13c0d23-ccbc-4e12-931b-d9cc2eee27e4"), 0x80020138, static_cast<unsigned int>(EventPipeEventLevel::Verbose)); // Public provider.
-    rundownProviders[1] = EventPipeProviderConfiguration(W("a669021c-c450-4609-a035-5af59af4df18"), 0x80020138, static_cast<unsigned int>(EventPipeEventLevel::Verbose)); // Rundown provider.
+    rundownProviders[0] = EventPipeProviderConfiguration(W("Microsoft-Windows-DotNETRuntime"), 0x80020138, static_cast<unsigned int>(EventPipeEventLevel::Verbose)); // Public provider.
+    rundownProviders[1] = EventPipeProviderConfiguration(W("Microsoft-Windows-DotNETRuntimeRundown"), 0x80020138, static_cast<unsigned int>(EventPipeEventLevel::Verbose)); // Rundown provider.
 
     // Enable rundown.
     m_rundownEnabled = true;
@@ -333,12 +412,13 @@ EventPipeEventInstance* EventPipeConfiguration::BuildEventMetadataEvent(EventPip
 
     // Calculate the size of the event.
     EventPipeEvent &sourceEvent = *sourceInstance.GetEvent();
-    const GUID &providerID = sourceEvent.GetProvider()->GetProviderID();
+    const SString &providerName = sourceEvent.GetProvider()->GetProviderName();
     unsigned int eventID = sourceEvent.GetEventID();
     unsigned int eventVersion = sourceEvent.GetEventVersion();
     BYTE *pPayloadData = sourceEvent.GetMetadata();
     unsigned int payloadLength = sourceEvent.GetMetadataLength();
-    unsigned int instancePayloadSize = sizeof(providerID) + sizeof(eventID) + sizeof(eventVersion) + sizeof(payloadLength) + payloadLength;
+    unsigned int providerNameLength = (providerName.GetCount() + 1) * sizeof(WCHAR);
+    unsigned int instancePayloadSize = providerNameLength + sizeof(eventID) + sizeof(eventVersion) + sizeof(payloadLength) + payloadLength;
 
     // Allocate the payload.
     BYTE *pInstancePayload = new BYTE[instancePayloadSize];
@@ -347,10 +427,10 @@ EventPipeEventInstance* EventPipeConfiguration::BuildEventMetadataEvent(EventPip
     BYTE *currentPtr = pInstancePayload;
 
     // Write the provider ID.
-    memcpy(currentPtr, (BYTE*)&providerID, sizeof(providerID));
-    currentPtr += sizeof(providerID);
+    memcpy(currentPtr, (BYTE*)providerName.GetUnicode(), providerNameLength);
+    currentPtr += providerNameLength;
 
-    // Write the event ID.
+    // Write the event name as null-terminated unicode.
     memcpy(currentPtr, &eventID, sizeof(eventID));
     currentPtr += sizeof(eventID);
 
@@ -394,17 +474,21 @@ void EventPipeConfiguration::DeleteDeferredProviders()
     }
     CONTRACTL_END;
 
-    SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
-    while(pElem != NULL)
+    // The provider list should be non-NULL, but can be NULL on shutdown.
+    if (m_pProviderList != NULL)
     {
-        EventPipeProvider *pProvider = pElem->GetValue();
-        if(pProvider->GetDeleteDeferred())
+        SListElem<EventPipeProvider*> *pElem = m_pProviderList->GetHead();
+        while(pElem != NULL)
         {
-            // The act of deleting the provider unregisters it and removes it from the list.
-            delete(pProvider);
+            EventPipeProvider *pProvider = pElem->GetValue();
+            pElem = m_pProviderList->GetNext(pElem);
+            if(pProvider->GetDeleteDeferred())
+            {
+                // The act of deleting the provider unregisters it,
+                // removes it from the list, and deletes the list element
+                delete(pProvider);
+            }
         }
-
-        pElem = m_pProviderList->GetNext(pElem);
     }
 }
 
@@ -494,16 +578,7 @@ EventPipeEnabledProvider* EventPipeEnabledProviderList::GetEnabledProvider(
         return NULL;
     }
 
-    // TEMPORARY: Convert the provider GUID to a string.
-    const unsigned int guidSize = 39;
-    WCHAR wszProviderID[guidSize];
-    if(!StringFromGUID2(pProvider->GetProviderID(), wszProviderID, guidSize))
-    {
-        wszProviderID[0] = '\0';
-    }
-
-    // Strip off the {}.
-    SString providerNameStr(&wszProviderID[1], guidSize-3);
+    SString providerNameStr = pProvider->GetProviderName();
     LPCWSTR providerName = providerNameStr.GetUnicode();
 
     EventPipeEnabledProvider *pEnabledProvider = NULL;
