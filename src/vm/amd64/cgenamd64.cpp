@@ -961,23 +961,30 @@ EXTERN_C PCODE VirtualMethodFixupWorker(TransitionBlock * pTransitionBlock, CORC
         if (pDirectTarget != NULL)
             pCode = pDirectTarget;
 
-        INT64 oldValue = *(INT64*)pThunk;
-        BYTE* pOldValue = (BYTE*)&oldValue;
+        // patch the methodtable to point to the code
+        _ASSERTE(!pMD->HasNonVtableSlot());
+        _ASSERTE(!pMT->IsInterface());
+        _ASSERTE(!pMD->IsStatic());
+        // pMD->SetStableEntryPointInterlocked(pCode);
+        pMT->SetSlot(slotNumber, pCode);
 
-        if (pOldValue[0] == X86_INSTR_CALL_REL32)
-        {
-            INT64 newValue = oldValue;
-            BYTE* pNewValue = (BYTE*)&newValue;
-            pNewValue[0] = X86_INSTR_JMP_REL32;
-
-            *(INT32 *)(pNewValue+1) = rel32UsingJumpStub((INT32*)(&pThunk->callJmp[1]), pCode, pMD, NULL);
-
-            _ASSERTE(IS_ALIGNED(pThunk, sizeof(INT64)));
-            EnsureWritableExecutablePages(pThunk, sizeof(INT64));
-            FastInterlockCompareExchangeLong((INT64*)pThunk, newValue, oldValue);
-
-            FlushInstructionCache(GetCurrentProcess(), pThunk, 8);
-        }
+        // INT64 oldValue = *(INT64*)pThunk;
+        // BYTE* pOldValue = (BYTE*)&oldValue;
+        // 
+        // if (pOldValue[0] == X86_INSTR_CALL_REL32)
+        // {
+        //     INT64 newValue = oldValue;
+        //     BYTE* pNewValue = (BYTE*)&newValue;
+        //     pNewValue[0] = X86_INSTR_JMP_REL32;
+        // 
+        //     *(INT32 *)(pNewValue+1) = rel32UsingJumpStub((INT32*)(&pThunk->callJmp[1]), pCode, pMD, NULL);
+        // 
+        //     _ASSERTE(IS_ALIGNED(pThunk, sizeof(INT64)));
+        //     EnsureWritableExecutablePages(pThunk, sizeof(INT64));
+        //     FastInterlockCompareExchangeLong((INT64*)pThunk, newValue, oldValue);
+        // 
+        //     FlushInstructionCache(GetCurrentProcess(), pThunk, 8);
+        // }
         
         UNINSTALL_UNWIND_AND_CONTINUE_HANDLER_NO_PROBE;
         UNINSTALL_MANAGED_EXCEPTION_DISPATCHER;

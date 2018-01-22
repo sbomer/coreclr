@@ -2339,8 +2339,13 @@ EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_I
     {
         // Skip fixup precode jump for better perf
         PCODE pDirectTarget = Precode::TryToSkipFixupPrecode(pCode);
-        if (pDirectTarget != NULL)
+        if (pDirectTarget != NULL) {
             pCode = pDirectTarget;
+            // I don't know how we could already have run precode and
+            // have it patched if we're hitting the virtual method
+            // fixup.
+            _ASSERTE(false);
+        }
 
         // Patch the thunk to the actual method body
         if (EnsureWritableExecutablePagesNoThrow(&pThunk->m_pTarget, sizeof(pThunk->m_pTarget)))

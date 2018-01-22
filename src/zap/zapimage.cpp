@@ -332,6 +332,7 @@ void ZapImage::AllocateVirtualSections()
         m_pPreloadSections[CORCOMPILE_SECTION_RVA_STATICS_HOT] = NewVirtualSection(pDataSection, IBCProfiledSection | HotRange | RVAStaticsSection);
 
         m_pDelayLoadInfoTableSection[ZapImportSectionType_Eager] = NewVirtualSection(pDataSection, IBCUnProfiledSection | HotRange | DelayLoadInfoTableEagerSection, sizeof(TADDR));
+        m_pPreloadSections[CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY] = NewVirtualSection(pDataSection, IBCProfiledSection | WarmRange | WriteableDataSection, sizeof(TADDR));
 
         //
         // Allocate dynamic info tables
@@ -414,7 +415,6 @@ void ZapImage::AllocateVirtualSections()
         // Some sections are placed in a sorted order. Hot items are placed first,
         // then cold items. These sections are marked as HotColdSortedRange since
         // they are neither completely hot, nor completely cold. 
-        m_pVirtualImportThunkSection        = NewVirtualSection(pXDataSection, IBCProfiledSection | HotColdSortedRange | VirtualImportThunkSection, HELPER_TABLE_ALIGN);
         m_pExternalMethodThunkSection       = NewVirtualSection(pXDataSection, IBCProfiledSection | HotColdSortedRange | ExternalMethodThunkSection, HELPER_TABLE_ALIGN);
         m_pHelperTableSection               = NewVirtualSection(pXDataSection, IBCProfiledSection | HotColdSortedRange| HelperTableSection, HELPER_TABLE_ALIGN);
 
@@ -499,6 +499,7 @@ void ZapImage::AllocateVirtualSections()
         m_pDynamicHelperDataSection = NewVirtualSection(pTextSection, IBCProfiledSection | HotColdSortedRange | ExternalMethodDataSection, sizeof(DWORD));
         m_pExternalMethodDataSection = NewVirtualSection(pTextSection, IBCProfiledSection | HotColdSortedRange | ExternalMethodDataSection, sizeof(DWORD));
         m_pStubDispatchDataSection = NewVirtualSection(pTextSection, IBCProfiledSection | HotColdSortedRange | StubDispatchDataSection, sizeof(DWORD));
+        m_pVirtualImportThunkSection = NewVirtualSection(pTextSection, IBCProfiledSection | HotColdSortedRange | VirtualImportThunkSection, HELPER_TABLE_ALIGN);
 
         m_pHotRuntimeFunctionLookupSection = NewVirtualSection(pTextSection, IBCProfiledSection | HotRange | RuntimeFunctionSection, sizeof(DWORD));
 #if !defined(WIN64EXCEPTIONS)
@@ -572,7 +573,6 @@ void ZapImage::AllocateVirtualSections()
 #endif // defined(WIN64EXCEPTIONS)
 
         m_pPreloadSections[CORCOMPILE_SECTION_READONLY_WARM] = NewVirtualSection(pTextSection, IBCProfiledSection | WarmRange | ReadonlySection, sizeof(TADDR));
-        m_pPreloadSections[CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY] = NewVirtualSection(pTextSection, IBCProfiledSection | WarmRange | ReadonlySection, sizeof(TADDR));
 
         //
         // GC Info for methods which were not touched in profiling
