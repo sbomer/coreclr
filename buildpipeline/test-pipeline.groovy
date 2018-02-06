@@ -1,10 +1,36 @@
-@Library('dotnet-ci')
+@Library('dotnet-ci') _
 
-simpleNode('Windows_NT', 'latest') {
+simpleNode(params.os, 'latest') {
     stage('checkout sources') {
         checkout scm
     }
-    stage('build') {
-        bat '.\\build.cmd'
+    stage('init test dependencies') {
+        if (params.os == "Windows_NT") {
+            bat 'init-tools.cmd'
+            bat 'python tests\\scripts\\build_jitutils.py --os Windows_NT'
+        } else if (params.os == "Ubuntu") {
+            sh './init-tools.sh'
+            sh 'python tests/scripts/build_jitutils.py --os Linux'
+        }
+    } 
+    stage('obtain artifacts') {
+        if (params.os == "Windows_NT") {
+            bat 'Tools\\jitutils\\bin\\cijobs --help'
+        } else if (params.os == "Ubuntu") {
+            sh 'Tools/jitutils/bin/cijobs --help'
+        }
+    }
+    stage('run other job') {
+        // TODO: with parameters? this is important.
+        build job: 'build-pipeline', parameters: [
+            string(name: 'os', value: "${params.os}")
+        ]
+    }
+    stage('obtain artifacts') {
+//         copyArtifacts('build-pipeline') {
+//            buildSelector {
+//                latestSuccessful(true)
+//            }
+//        }
     }
 }
