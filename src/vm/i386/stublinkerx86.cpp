@@ -6610,7 +6610,7 @@ void FixupPrecode::Fixup(DataImage *image, MethodDesc * pMD)
 
     SSIZE_T mdChunkOffset;
     ZapNode * pMDChunkNode = image->GetNodeForStructure(pMD, &mdChunkOffset);
-    ZapNode * pHelperThunk = image->GetHelperThunk(CORINFO_HELP_EE_PRECODE_FIXUP);
+    ZapNode * pHelperThunk = image->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRECODE_FIXUP);
 
     image->FixupFieldToNode(this, offsetof(FixupPrecode, m_rel32),
                             pHelperThunk, 0, IMAGE_REL_BASED_REL32);

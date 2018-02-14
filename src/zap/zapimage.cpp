@@ -388,6 +388,7 @@ void ZapImage::AllocateVirtualSections()
         m_pPreloadSections[CORCOMPILE_SECTION_MODULE_COLD] = NewVirtualSection(pDataSection, IBCProfiledSection | ColdRange | ModuleSection, sizeof(TADDR));
         m_pPreloadSections[CORCOMPILE_SECTION_DEBUG_COLD] = NewVirtualSection(pDataSection, IBCUnProfiledSection | ColdRange | DebugSection, sizeof(TADDR));
 
+        m_pHelperTableSection = NewVirtualSection(pDataSection, IBCProfiledSection | HotColdSortedRange | HelperTableSection, HELPER_TABLE_ALIGN);
         //
         // If we're instrumenting allocate a section for writing profile data
         //
@@ -416,7 +417,6 @@ void ZapImage::AllocateVirtualSections()
         // then cold items. These sections are marked as HotColdSortedRange since
         // they are neither completely hot, nor completely cold. 
         m_pExternalMethodThunkSection       = NewVirtualSection(pXDataSection, IBCProfiledSection | HotColdSortedRange | ExternalMethodThunkSection, HELPER_TABLE_ALIGN);
-        m_pHelperTableSection               = NewVirtualSection(pXDataSection, IBCProfiledSection | HotColdSortedRange| HelperTableSection, HELPER_TABLE_ALIGN);
 
         // hot for writing, i.e. profiling has indicated a write to this item, so at least one write likely per item at some point
         m_pPreloadSections[CORCOMPILE_SECTION_METHOD_PRECODE_WRITE] = NewVirtualSection(pXDataSection, IBCProfiledSection | HotRange | MethodPrecodeWriteSection, sizeof(TADDR));
@@ -472,8 +472,10 @@ void ZapImage::AllocateVirtualSections()
         m_pLazyHelperSection = NewVirtualSection(pTextSection, IBCUnProfiledSection | HotRange | HelperTableSection, MINIMUM_CODE_ALIGN);
         m_pLazyHelperSection->SetDefaultFill(DEFAULT_CODE_BUFFER_INIT);
 
+#ifdef FEATURE_READYTORUN_COMPILER
         m_pLazyMethodCallHelperSection = NewVirtualSection(pTextSection, IBCUnProfiledSection | HotRange | HelperTableSection, MINIMUM_CODE_ALIGN);
         m_pLazyMethodCallHelperSection->SetDefaultFill(DEFAULT_CODE_BUFFER_INIT);
+#endif
 
         int codeSectionAlign = DEFAULT_CODE_ALIGN;
 
@@ -3617,7 +3619,24 @@ ZapNode * ZapImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
 
     if (pHelperThunk == NULL)
     {
-        pHelperThunk = new (GetHeap()) ZapHelperThunk(ftnNum);
+        DWORD dwHelper = ftnNum;
+        switch (ftnNum)
+        {
+        case CORINFO_HELP_EE_VTABLE_FIXUP:
+        case CORINFO_HELP_EE_PERSONALITY_ROUTINE:
+        case CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET:
+        case CORINFO_HELP_STRCNS:
+        case CORINFO_HELP_EE_EXTERNAL_FIXUP:
+        case CORINFO_HELP_EE_PINVOKE_FIXUP:
+        case CORINFO_HELP_EE_PRESTUB:
+        case CORINFO_HELP_EE_PRECODE_FIXUP:
+        case CORINFO_HELP_EE_VSD_FIXUP:
+            dwHelper |= CORCOMPILE_HELPER_PTR;
+            break;
+        default:
+            break;
+        }
+        pHelperThunk = new (GetHeap()) ZapHelperThunk(dwHelper);
 #ifdef _TARGET_ARM_
         pHelperThunk = GetInnerPtr(pHelperThunk, THUMB_CODE);
 #endif
@@ -3632,6 +3651,16 @@ ZapNode * ZapImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
         m_pHelperTableSection->Place(pTarget);
 
     return pHelperThunk;
+}
+
+ZapNode * ZapImage::GetIndirectHelperThunkIfExists(CorInfoHelpFunc ftnNum)
+{
+    if (m_pHelperThunks[ftnNum] != NULL) {
+        ZapNode * pImport = GetImportTable()->GetIndirectHelperThunk(ftnNum);
+        _ASSERTE(pImport->IsPlaced());
+        return pImport;
+    }
+    return NULL;
 }
 
 //

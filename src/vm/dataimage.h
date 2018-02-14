@@ -447,6 +447,7 @@ public:
     ZapNode * GetFixupList(MethodDesc * method);
 
     ZapNode * GetHelperThunk(CorInfoHelpFunc ftnNum);
+    ZapNode * GetPlacedIndirectHelperThunk(CorInfoHelpFunc ftnNum);
 
     // pUniqueId is used to allocate unique cells for cases where we cannot use the shared cell.
     ZapNode * GetTypeHandleImport(TypeHandle th, PVOID pUniqueId = NULL);

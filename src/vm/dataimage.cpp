@@ -1123,6 +1123,11 @@ ZapNode * DataImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
     return m_pZapImage->GetHelperThunk(ftnNum);
 }
 
+ZapNode * DataImage::GetPlacedIndirectHelperThunk(CorInfoHelpFunc ftnNum)
+{
+    return m_pZapImage->GetImportTable()->GetPlacedIndirectHelperThunk(ftnNum);
+}
+
 ZapNode * DataImage::GetTypeHandleImport(TypeHandle th, PVOID pUniqueId)
 {
     ZapImport * pImport = m_pZapImage->GetImportTable()->GetClassHandleImport(CORINFO_CLASS_HANDLE(th.AsPtr()), pUniqueId);
@@ -1255,7 +1260,7 @@ public:
             pNode, (int)offset, IMAGE_REL_BASED_PTR);
 
         pImage->WriteReloc(&precode, offsetof(StubPrecode, m_rel32),
-            pImage->GetHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
+                           pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
 
         pZapWriter->Write(&precode, sizeof(precode));
     }
@@ -1284,7 +1289,7 @@ public:
             pNode, (int)offset, IMAGE_REL_BASED_PTR);
 
         pImage->WriteReloc(&precode, offsetof(StubPrecode, m_rel32),
-            pImage->GetHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP), 0, IMAGE_REL_BASED_REL32);
+                           pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP), 0, IMAGE_REL_BASED_REL32);
 
         pZapWriter->Write(&precode, sizeof(precode));
     }
@@ -1358,7 +1363,7 @@ public:
         else
         {
             pImage->WriteReloc(&precode, offsetof(RemotingPrecode, m_rel32),
-                pImage->GetHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
+                               pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
         }
 
         pZapWriter->Write(&precode, sizeof(precode));
@@ -1384,13 +1389,13 @@ void DataImage::SavePrecode(PVOID ptr, MethodDesc * pMD, PrecodeType t, ItemKind
     switch (t) {
     case PRECODE_STUB:
         pNode = new (GetHeap()) ZapStubPrecode(pMD, kind);
-        GetHelperThunk(CORINFO_HELP_EE_PRESTUB);
+        GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB);
         break;
 
 #ifdef HAS_NDIRECT_IMPORT_PRECODE
     case PRECODE_NDIRECT_IMPORT:
         pNode = new (GetHeap()) ZapNDirectImportPrecode(pMD, kind);
-        GetHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP);
+        GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP);
         break;
 #endif // HAS_NDIRECT_IMPORT_PRECODE
 
@@ -1402,7 +1407,7 @@ void DataImage::SavePrecode(PVOID ptr, MethodDesc * pMD, PrecodeType t, ItemKind
 
         if (!fIsPrebound)
         {
-            GetHelperThunk(CORINFO_HELP_EE_PRESTUB);
+            GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB);
         }
         break;
 #endif // HAS_REMOTING_PRECODE

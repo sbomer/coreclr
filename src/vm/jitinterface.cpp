@@ -12972,7 +12972,7 @@ void Module::LoadHelperTable()
     if (tableSize == 0)
         return;
 
-    EnsureWritableExecutablePages(table, tableSize);
+    EnsureWritablePages(table, tableSize);
 
     BYTE * curEntry   = table;
     BYTE * tableEnd   = table + tableSize;

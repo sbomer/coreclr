@@ -836,8 +836,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
 
 #ifdef FEATURE_PREJIT
         // NGEN helper
-        if (*PTR_BYTE(pCode) == X86_INSTR_JMP_REL32) {
-            pCode = (TADDR)rel32Decode(pCode+1);
+        if (*PTR_WORD(pCode) == X86_INSTR_JMP_IND) {
+            pCode = *PTR_TADDR((TADDR)rel32Decode(pCode+2));
         }
 #endif
 
@@ -860,8 +860,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
 
 #ifdef FEATURE_PREJIT
     // NGEN helper
-    if (*PTR_BYTE(pCode) == X86_INSTR_JMP_REL32) {
-        pCode = (TADDR)rel32Decode(pCode+1);
+    if (*PTR_WORD(pCode) == X86_INSTR_JMP_IND) {
+        pCode = *PTR_TADDR((TADDR)rel32Decode(pCode+2));
     }
 #endif
 

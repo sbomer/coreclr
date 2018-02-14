@@ -776,7 +776,7 @@ void NDirectImportPrecode::Fixup(DataImage *image)
                       IMAGE_REL_BASED_PTR);
 
     image->FixupFieldToNode(this, offsetof(NDirectImportPrecode, m_pTarget),
-                            image->GetHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP),
+                            image->GetImportTable()->GetIndirectHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP),
                             0,
                             IMAGE_REL_BASED_PTR);
 }

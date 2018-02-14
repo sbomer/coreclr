@@ -438,10 +438,12 @@ public:
 
     ZapImport * GetDictionaryLookupCell(CORCOMPILE_FIXUP_BLOB_KIND kind, CORINFO_RESOLVED_TOKEN * pResolvedToken, CORINFO_LOOKUP_KIND * pLookup);
 
+    ZapNode * GetIndirectHelperThunk(CorInfoHelpFunc helperNum);
+    void PlaceIndirectHelperThunk(ZapNode * pImport);
+    ZapNode * GetPlacedIndirectHelperThunk(CorInfoHelpFunc helperNum);
 #ifdef FEATURE_READYTORUN_COMPILER
     ZapNode * GetPlacedIndirectHelperThunk(ReadyToRunHelper helperNum, PVOID pArg = NULL, ZapNode * pCell = NULL);
     ZapNode * GetIndirectHelperThunk(ReadyToRunHelper helperNum, PVOID pArg = NULL);
-    void PlaceIndirectHelperThunk(ZapNode * pImport);
 
     ZapImport * GetPlacedHelperImport(ReadyToRunHelper helperNum);
     ZapImport * GetHelperImport(ReadyToRunHelper helperNum);

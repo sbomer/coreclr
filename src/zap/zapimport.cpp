@@ -509,7 +509,7 @@ public:
 void ZapExternalMethodThunk::Save(ZapWriter * pZapWriter)
 {
     ZapImage *             pImage  = ZapImage::GetImage(pZapWriter);
-    ZapNode *              helper  = pImage->GetHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP);
+    ZapNode *              helper  = pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP);
 
     CORCOMPILE_EXTERNAL_METHOD_THUNK thunk;
     memset(&thunk, DEFAULT_CODE_BUFFER_INIT, sizeof(thunk));
@@ -565,7 +565,7 @@ void ZapImportSectionSignatures::PlaceExternalMethodThunk(ZapImport * pImport)
             sizeof(CORCOMPILE_EXTERNAL_METHOD_THUNK), m_pImportSection, this, m_pGCRefMapTable);
 
         // Make sure the helper created
-        m_pImage->GetHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP);
+        m_pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP);
     }
 
     // Add entry to both the the cell and data sections
@@ -675,7 +675,7 @@ void ZapImportSectionSignatures::PlaceStubDispatchCell(ZapImport * pImport)
     else
 #endif
     {
-        pCell->SetDelayLoadHelper(m_pImage->GetHelperThunk(CORINFO_HELP_EE_VSD_FIXUP));
+        pCell->SetDelayLoadHelper(m_pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_VSD_FIXUP));
     }
 
     // Add entry to both the cell and data sections
@@ -821,7 +821,7 @@ void ZapVirtualMethodThunk::Save(ZapWriter * pZapWriter)
 
     // On ARM, the helper would already have the thumb-bit set. Refer to
     // GetHelperThunk implementation.
-    ZapNode *  helper  = pImage->GetHelperThunk(CORINFO_HELP_EE_VTABLE_FIXUP);
+    ZapNode *helper = pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_VTABLE_FIXUP);
     _ASSERTE(FitsIn<UINT16>((SIZE_T)GetHandle2() - 1));
     USHORT     slotNum = (USHORT)((SIZE_T)GetHandle2() - 1);
 
@@ -880,7 +880,7 @@ void ZapImportTable::PlaceVirtualImportThunk(ZapImport * pVirtualImportThunk)
             sizeof(CORCOMPILE_VIRTUAL_IMPORT_THUNK), m_pImage->m_pVirtualImportThunkSection);
 
         // Make sure the helper created
-        m_pImage->GetHelperThunk(CORINFO_HELP_EE_VTABLE_FIXUP);
+        m_pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_VTABLE_FIXUP);
     }
 
     m_pImage->m_pVirtualImportThunkSection->Place(pVirtualImportThunk);
@@ -1904,6 +1904,8 @@ ZapImport * ZapImportTable::GetDynamicHelperCell(CORCOMPILE_FIXUP_BLOB_KIND kind
     return GetImportForSignature<ZapDynamicHelperCell, ZapNodeType_DynamicHelperCell>((void *)(uintptr_t)((kind << 1) | 1), &sigBuilder);
 }
 
+#endif // FEATURE_READYTORUN_COMPILER
+
 class ZapIndirectHelperThunk : public ZapImport
 {
     DWORD SaveWorker(ZapWriter * pZapWriter);
@@ -1916,14 +1918,15 @@ public:
         m_pCell = pCell;
     }
 
+    CorInfoHelpFunc GetHelper()
+    {
+        return (CorInfoHelpFunc)((DWORD)GetHandle());
+    }
+   
+#ifdef FEATURE_READYTORUN_COMPILER
     ReadyToRunHelper GetReadyToRunHelper()
     {
         return (ReadyToRunHelper)((DWORD)GetHandle() & ~READYTORUN_HELPER_FLAG_VSD);
-    }
-
-    DWORD GetSectionIndex()
-    {
-        return (DWORD)GetHandle2();
     }
 
     BOOL IsDelayLoadHelper()
@@ -1951,6 +1954,13 @@ public:
         ReadyToRunHelper helper = GetReadyToRunHelper();
         return (helper == READYTORUN_HELPER_GetString);
     }
+#endif // FEATURE_READYTORUN_COMPILER
+
+    DWORD GetSectionIndex()
+    {
+        return (DWORD)GetHandle2();
+    }
+
 
     DWORD GetSize()
     {
@@ -1993,238 +2003,268 @@ DWORD ZapIndirectHelperThunk::SaveWorker(ZapWriter * pZapWriter)
 {
     ZapImage * pImage = ZapImage::GetImage(pZapWriter);
 
-    BYTE buffer[44];
-    BYTE * p = buffer;
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (IsReadyToRunCompilation())
+    {
+        BYTE buffer[44];
+        BYTE * p = buffer;
 
 #if defined(_TARGET_X86_)
-    if (IsDelayLoadHelper())
-    {
-        // xor eax, eax
-        *p++ = 0x33;
-        *p++ = 0xC0;
-
-        // push index
-        *p++ = 0x6A;
-        _ASSERTE(GetSectionIndex() <= 0x7F);
-        *p++ = (BYTE)GetSectionIndex();
-
-        // push [module]
-        *p++ = 0xFF;
-        *p++ = 0x35;
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
-        p += 4;
-    }
-    else
-    if (IsLazyHelper())
-    {
-        // mov edx, [module]
-        *p++ = 0x8B;
-        *p++ = 0x15;
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
-        p += 4;
-    }
-
-    // jmp [helper]
-    *p++ = 0xFF;
-    *p++ = 0x25;
-    if (pImage != NULL)
-        pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_PTR);
-    p += 4;
-#elif defined(_TARGET_AMD64_)
-    if (IsDelayLoadHelper())
-    {
-        if (m_pCell != NULL)
-        {
-            // lea rax, [pCell]
-            *p++ = 0x48;
-            *p++ = 0x8D;
-            *p++ = 0x05;
-            if (pImage != NULL)
-                pImage->WriteReloc(buffer, (int)(p - buffer), m_pCell, 0, IMAGE_REL_BASED_REL32);
-            p += 4;
-        }
-        else
-        if (IsVSD())
-        {
-            // mov rax, r11
-            *p++ = 0x49;
-            *p++ = 0x8b;
-            *p++ = 0xc3;
-        }
-        else
+        if (IsDelayLoadHelper())
         {
             // xor eax, eax
             *p++ = 0x33;
             *p++ = 0xC0;
+
+            // push index
+            *p++ = 0x6A;
+            _ASSERTE(GetSectionIndex() <= 0x7F);
+            *p++ = (BYTE)GetSectionIndex();
+
+            // push [module]
+            *p++ = 0xFF;
+            *p++ = 0x35;
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
+            p += 4;
         }
-
-        // push index
-        *p++ = 0x6A;
-        _ASSERTE(GetSectionIndex() <= 0x7F);
-        *p++ = (BYTE)GetSectionIndex();
-
-        // push [module]
-        *p++ = 0xFF;
-        *p++ = 0x35;
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_REL32);
-        p += 4;
-    }
-    else
-    if (IsLazyHelper())
-    {
-        *p++ = 0x48;
-        *p++ = 0x8B;
-#ifdef UNIX_AMD64_ABI
-        // mov rsi, [module]
-        *p++ = 0x35;
-#else
-        // mov rdx, [module]
-        *p++ = 0x15;
-#endif
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_REL32);
-        p += 4;
-    }
-
-    // jmp [helper]
-    *p++ = 0xFF;
-    *p++ = 0x25;
-    if (pImage != NULL)
-        pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_REL32);
-    p += 4;
-#elif defined(_TARGET_ARM_)
-    if (IsDelayLoadHelper())
-    {
-        // r4 contains indirection cell
-        // push r4
-        *(WORD *)(p + 0) = 0xB410;
-        p += 2;
-
-        // mov r4, index
-        _ASSERTE(GetSectionIndex() <= 0x7F);
-        *(WORD *)(p + 0) = 0x2400 | (BYTE)GetSectionIndex();
-        p += 2;
-
-        // push r4
-        *(WORD *)(p + 0) = 0xB410;
-        p += 2;
-
-        // mov r4, [module]
-        MovRegImm(p, 4);
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_THUMB_MOV32);
-        p += 8;
-
-        // ldr r4, [r4]
-        *(WORD *)p = 0x6824;
-        p += 2;
-
-        // push r4
-        *(WORD *)(p + 0) = 0xB410;
-        p += 2;
-
-        // mov r4, [helper]
-        MovRegImm(p, 4);
-        if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_THUMB_MOV32);
-        p += 8;
-
-        // ldr r4, [r4]
-        *(WORD *)p = 0x6824;
-        p += 2;
-
-        // bx r4
-        *(WORD *)p = 0x4720;
-        p += 2;
-    }
-    else
-    {
+        else
         if (IsLazyHelper())
         {
-            // mov r1, [helper]
-            MovRegImm(p, 1);
+            // mov edx, [module]
+            *p++ = 0x8B;
+            *p++ = 0x15;
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
+            p += 4;
+        }
+
+        // jmp [helper]
+        *p++ = 0xFF;
+        *p++ = 0x25;
+        if (pImage != NULL)
+            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_PTR);
+        p += 4;
+#elif defined(_TARGET_AMD64_)
+        if (IsDelayLoadHelper())
+        {
+            if (m_pCell != NULL)
+            {
+                // lea rax, [pCell]
+                *p++ = 0x48;
+                *p++ = 0x8D;
+                *p++ = 0x05;
+                if (pImage != NULL)
+                    pImage->WriteReloc(buffer, (int)(p - buffer), m_pCell, 0, IMAGE_REL_BASED_REL32);
+                p += 4;
+            }
+            else
+            if (IsVSD())
+            {
+                // mov rax, r11
+                *p++ = 0x49;
+                *p++ = 0x8b;
+                *p++ = 0xc3;
+            }
+            else
+            {
+                // xor eax, eax
+                *p++ = 0x33;
+                *p++ = 0xC0;
+            }
+
+            // push index
+            *p++ = 0x6A;
+            _ASSERTE(GetSectionIndex() <= 0x7F);
+            *p++ = (BYTE)GetSectionIndex();
+
+            // push [module]
+            *p++ = 0xFF;
+            *p++ = 0x35;
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_REL32);
+            p += 4;
+        }
+        else
+        if (IsLazyHelper())
+        {
+            *p++ = 0x48;
+            *p++ = 0x8B;
+#ifdef UNIX_AMD64_ABI
+            // mov rsi, [module]
+            *p++ = 0x35;
+#else
+            // mov rdx, [module]
+            *p++ = 0x15;
+#endif
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_REL32);
+            p += 4;
+        }
+
+        // jmp [helper]
+        *p++ = 0xFF;
+        *p++ = 0x25;
+        if (pImage != NULL)
+            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_REL32);
+        p += 4;
+#elif defined(_TARGET_ARM_)
+        if (IsDelayLoadHelper())
+        {
+            // r4 contains indirection cell
+            // push r4
+            *(WORD *)(p + 0) = 0xB410;
+            p += 2;
+
+            // mov r4, index
+            _ASSERTE(GetSectionIndex() <= 0x7F);
+            *(WORD *)(p + 0) = 0x2400 | (BYTE)GetSectionIndex();
+            p += 2;
+
+            // push r4
+            *(WORD *)(p + 0) = 0xB410;
+            p += 2;
+
+            // mov r4, [module]
+            MovRegImm(p, 4);
             if (pImage != NULL)
                 pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_THUMB_MOV32);
             p += 8;
 
-            // ldr r1, [r1]
-            *(WORD *)p = 0x6809;
+            // ldr r4, [r4]
+            *(WORD *)p = 0x6824;
+            p += 2;
+
+            // push r4
+            *(WORD *)(p + 0) = 0xB410;
+            p += 2;
+
+            // mov r4, [helper]
+            MovRegImm(p, 4);
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_THUMB_MOV32);
+            p += 8;
+
+            // ldr r4, [r4]
+            *(WORD *)p = 0x6824;
+            p += 2;
+
+            // bx r4
+            *(WORD *)p = 0x4720;
             p += 2;
         }
+        else
+        {
+            if (IsLazyHelper())
+            {
+                // mov r1, [helper]
+                MovRegImm(p, 1);
+                if (pImage != NULL)
+                    pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_THUMB_MOV32);
+                p += 8;
 
-        // mov r12, [helper]
-        MovRegImm(p, 12);
+                // ldr r1, [r1]
+                *(WORD *)p = 0x6809;
+                p += 2;
+            }
+
+            // mov r12, [helper]
+            MovRegImm(p, 12);
+            if (pImage != NULL)
+                pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_THUMB_MOV32);
+            p += 8;
+
+            // ldr r12, [r12]
+            *(DWORD *)p = 0xC000F8DC;
+            p += 4;
+
+            // bx r12
+            *(WORD *)p = 0x4760;
+            p += 2;
+        }
+#elif defined(_TARGET_ARM64_)
+        if (IsDelayLoadHelper())
+        {
+            // x11 contains indirection cell
+            // Do nothing x11 contains our first param
+
+            //  movz x9, #index
+            DWORD index = GetSectionIndex();
+            _ASSERTE(index <= 0x7F);
+            *(DWORD*)p = 0xd2800009 | (index << 5);
+            p += 4;
+
+            // move Module* -> x10
+            // ldr x10, [PC+0x14]
+            *(DWORD*)p = 0x580000AA;
+            p += 4;
+
+            //ldr x10, [x10]
+            *(DWORD*)p = 0xf940014A;
+            p += 4;
+        }
+        else
+        if (IsLazyHelper())
+        {
+            // Move Module* -> x1
+            // ldr x1, [PC+0x14]
+            *(DWORD*)p = 0x580000A1;
+            p += 4;
+
+            // ldr x1, [x1]
+            *(DWORD*)p = 0xf9400021;
+            p += 4;
+        }
+
+        // branch to helper
+        // ldr x12, [PC+0x14]
+        *(DWORD*)p = 0x580000AC;
+        p += 4;
+
+        // ldr x12, [x12]
+        *(DWORD *)p = 0xf940018c;
+        p += 4;
+
+        // br x12
+        *(DWORD *)p = 0xd61f0180;
+        p += 4;
+
+        // [Module*]
         if (pImage != NULL)
-            pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_THUMB_MOV32);
+            pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
         p += 8;
 
-        // ldr r12, [r12]
-        *(DWORD *)p = 0xC000F8DC;
-        p += 4;
+        // [helper]
+        if (pImage != NULL)
+            pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_PTR);
+        p += 8;
 
-        // bx r12
-        *(WORD *)p = 0x4760;
-        p += 2;
-    }
-#elif defined(_TARGET_ARM64_)
-    if (IsDelayLoadHelper())
-    {
-        // x11 contains indirection cell
-        // Do nothing x11 contains our first param
+#else
+        PORTABILITY_ASSERT("ZapIndirectHelperThunk::SaveWorker");
+#endif
 
-        //  movz x9, #index
-        DWORD index = GetSectionIndex();
-        _ASSERTE(index <= 0x7F);
-        *(DWORD*)p = 0xd2800009 | (index << 5);
-        p += 4;
+        _ASSERTE(p - buffer <= sizeof(buffer));
 
-        // move Module* -> x10
-        // ldr x10, [PC+0x14]
-        *(DWORD*)p = 0x580000AA;
-        p += 4;
+        if (pZapWriter != NULL)
+            pZapWriter->Write(&buffer, (int)(p - buffer));
 
-        //ldr x10, [x10]
-        *(DWORD*)p = 0xf940014A;
-        p += 4;
-    }
-    else
-    if (IsLazyHelper())
-    {
-        // Move Module* -> x1
-        // ldr x1, [PC+0x14]
-        *(DWORD*)p = 0x580000A1;
-        p += 4;
-
-        // ldr x1, [x1]
-        *(DWORD*)p = 0xf9400021;
-        p += 4;
+        return (DWORD)(p - buffer);
     }
 
-    // branch to helper
-    // ldr x12, [PC+0x14]
-    *(DWORD*)p = 0x580000AC;
-    p += 4;
+#endif // FEATURE_READYTOTRUN_COMPILER
 
-    // ldr x12, [x12]
-    *(DWORD *)p = 0xf940018c;
-    p += 4;
+    // for ngen images, we use this to write jit helper jumps through an indirection cell
+    BYTE buffer[6];
+    BYTE * p = buffer;
 
-    // br x12
-    *(DWORD *)p = 0xd61f0180;
-    p += 4;
-
-    // [Module*]
+#if defined(_TARGET_X86_)
+#elif defined(_TARGET_AMD64_)
+    // jmp [helper]
+    *p++ = 0xFF;
+    *p++ = 0x25;
     if (pImage != NULL)
-        pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(READYTORUN_HELPER_Module), 0, IMAGE_REL_BASED_PTR);
-    p += 8;
-
-    // [helper]
-    if (pImage != NULL)
-        pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetImportTable()->GetHelperImport(GetReadyToRunHelper()), 0, IMAGE_REL_BASED_PTR);
-    p += 8;
+        pImage->WriteReloc(buffer, (int) (p - buffer), pImage->GetHelperThunk(GetHelper()), 0, IMAGE_REL_BASED_REL32);
+    p += 4;
 #else
     PORTABILITY_ASSERT("ZapIndirectHelperThunk::SaveWorker");
 #endif
@@ -2241,16 +2281,43 @@ void ZapImportTable::PlaceIndirectHelperThunk(ZapNode * pImport)
 {
     ZapIndirectHelperThunk * pThunk = (ZapIndirectHelperThunk *)pImport;
 
-    if (pThunk->IsDelayLoadMethodCallHelper())
-        m_pImage->m_pLazyMethodCallHelperSection->Place(pThunk);
-    else
-        m_pImage->m_pLazyHelperSection->Place(pThunk);
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (IsReadyToRunCompilation())
+    {
+        if (pThunk->IsDelayLoadMethodCallHelper())
+            m_pImage->m_pLazyMethodCallHelperSection->Place(pThunk);
+        else
+            m_pImage->m_pLazyHelperSection->Place(pThunk);
 
-    if (pThunk->IsDelayLoadHelper() || pThunk->IsLazyHelper())
-       GetPlacedHelperImport(READYTORUN_HELPER_Module);
+        if (pThunk->IsDelayLoadHelper() || pThunk->IsLazyHelper())
+            GetPlacedHelperImport(READYTORUN_HELPER_Module);
 
-    GetPlacedHelperImport(pThunk->GetReadyToRunHelper());
+        GetPlacedHelperImport(pThunk->GetReadyToRunHelper());
+
+        return;
+    }
+#endif // FEATURE_READYTORUN_COMPILER
+
+    m_pImage->m_pLazyHelperSection->Place(pThunk);
+
+    m_pImage->GetHelperThunk(pThunk->GetHelper());
 }
+
+ZapNode * ZapImportTable::GetIndirectHelperThunk(CorInfoHelpFunc helperNum)
+{
+    ZapNode * pImport = GetImport<ZapIndirectHelperThunk, ZapNodeType_IndirectHelperThunk>((void *)helperNum);
+    return pImport;
+}
+
+ZapNode * ZapImportTable::GetPlacedIndirectHelperThunk(CorInfoHelpFunc helperNum)
+{
+    ZapNode * pImport = GetImport<ZapIndirectHelperThunk, ZapNodeType_IndirectHelperThunk>((void *)helperNum);
+    if (!pImport->IsPlaced())
+        PlaceIndirectHelperThunk(pImport);
+    return pImport;
+}
+
+#ifdef FEATURE_READYTORUN_COMPILER
 
 ZapNode * ZapImportTable::GetIndirectHelperThunk(ReadyToRunHelper helperNum, PVOID pArg)
 {
@@ -2284,6 +2351,8 @@ ZapNode * ZapImportTable::GetPlacedIndirectHelperThunk(ReadyToRunHelper helperNu
     return pImport;
 }
 
+#endif // FEATURE_READYTORUN_COMPILER
+
 class ZapHelperImport : public ZapImport
 {
 public:
@@ -2305,6 +2374,8 @@ public:
         _ASSERTE(false);
     }
 };
+
+#ifdef FEATURE_READYTORUN_COMPILER
 
 ZapImport * ZapImportTable::GetHelperImport(ReadyToRunHelper helperNum)
 {

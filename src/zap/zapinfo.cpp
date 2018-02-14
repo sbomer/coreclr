@@ -1760,7 +1760,10 @@ void * ZapInfo::getHelperFtn (CorInfoHelpFunc ftnNum, void **ppIndirection)
         dwHelper |= CORCOMPILE_HELPER_PTR;
    break;
 #endif
+    case CORINFO_HELP_STRCNS_CURRENT_MODULE:
+        break;
     default:
+        dwHelper |= CORCOMPILE_HELPER_PTR;
         break;
     }
 

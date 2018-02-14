@@ -186,7 +186,9 @@ public:
     ZapVirtualSection * m_pHeaderSection;
     ZapVirtualSection * m_pHelperTableSection;
     ZapVirtualSection * m_pLazyHelperSection;
+#ifdef FEATURE_READYTORUN_COMPILER
     ZapVirtualSection * m_pLazyMethodCallHelperSection;
+#endif
     ZapVirtualSection * m_pHotCodeSection;
     ZapVirtualSection * m_pHotGCSection;
     ZapVirtualSection * m_pHotTouchedGCSection;
@@ -815,6 +817,8 @@ public:
     {
         return m_pHelperThunks[ftnNum];
     }
+
+    ZapNode * GetIndirectHelperThunkIfExists(CorInfoHelpFunc ftnNum);
 
     ZapNode * GetHelperThunk(CorInfoHelpFunc ftnNum);
 

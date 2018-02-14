@@ -271,15 +271,15 @@ void ZapImage::OutputCode(CodeType codeType)
                         m_pExternalMethodDataTable->PlaceExternalMethodCell((ZapImport *)pTarget);
                     break;
 
+                case ZapNodeType_IndirectHelperThunk:
+                    if (!pTarget->IsPlaced())
+                        m_pImportTable->PlaceIndirectHelperThunk(pTarget);
+                    break;
+
 #ifdef FEATURE_READYTORUN_COMPILER
                 case ZapNodeType_DynamicHelperCell:
                     if (!pTarget->IsPlaced())
                         m_pDynamicHelperDataTable->PlaceDynamicHelperCell((ZapImport *)pTarget);
-                    break;
-
-                case ZapNodeType_IndirectHelperThunk:
-                    if (!pTarget->IsPlaced())
-                        m_pImportTable->PlaceIndirectHelperThunk(pTarget);
                     break;
 
                 case ZapNodeType_RVAFieldData:
