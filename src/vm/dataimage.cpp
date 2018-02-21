@@ -1260,7 +1260,7 @@ public:
             pNode, (int)offset, IMAGE_REL_BASED_PTR);
 
         pImage->WriteReloc(&precode, offsetof(StubPrecode, m_rel32),
-                           pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
+            pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
 
         pZapWriter->Write(&precode, sizeof(precode));
     }
@@ -1289,7 +1289,7 @@ public:
             pNode, (int)offset, IMAGE_REL_BASED_PTR);
 
         pImage->WriteReloc(&precode, offsetof(StubPrecode, m_rel32),
-                           pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP), 0, IMAGE_REL_BASED_REL32);
+            pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PINVOKE_FIXUP), 0, IMAGE_REL_BASED_REL32);
 
         pZapWriter->Write(&precode, sizeof(precode));
     }
@@ -1363,7 +1363,7 @@ public:
         else
         {
             pImage->WriteReloc(&precode, offsetof(RemotingPrecode, m_rel32),
-                               pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
+                pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_PRESTUB), 0, IMAGE_REL_BASED_REL32);
         }
 
         pZapWriter->Write(&precode, sizeof(precode));
