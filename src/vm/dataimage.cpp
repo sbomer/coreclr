@@ -1005,7 +1005,7 @@ void DataImage::FixupSectionPtr(SIZE_T offset, ZapNode * pNode)
 
 void DataImage::FixupJumpStubPtr(SIZE_T offset, CorInfoHelpFunc ftnNum)
 {
-    ZapNode * pNode = m_pZapImage->GetHelperThunkIfExists(ftnNum);
+    ZapNode * pNode = m_pZapImage->GetIndirectHelperThunkIfExists(ftnNum);
     if (pNode != NULL)
         FixupFieldToNode(m_module->m_pNGenLayoutInfo, offset, pNode);
 }
