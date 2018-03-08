@@ -1702,7 +1702,7 @@ void ZapLazyHelperThunk::Place(ZapImage * pImage)
 {
     m_pArg = pImage->m_pPreloadSections[CORCOMPILE_SECTION_MODULE];
 
-    m_pTarget = pImage->GetHelperThunk(m_dwHelper);
+    m_pTarget = pImage->GetImportTable()->GetPlacedIndirectHelperThunk(m_dwHelper);
 
     pImage->m_pLazyHelperSection->Place(this);
 }

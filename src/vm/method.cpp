@@ -4850,8 +4850,6 @@ BOOL MethodDesc::SetStableEntryPointInterlocked(PCODE addr)
 
     PCODE pExpected = GetTemporaryEntryPoint();
     PTR_PCODE pSlot = GetAddrOfSlot();
-    // how can we get here if the vtvable slots aren't writeable?
-    _ASSERTE(HasNonVtableSlot());
     EnsureWritablePages(pSlot);
 
     BOOL fResult = FastInterlockCompareExchangePointer(pSlot, addr, pExpected) == pExpected;
