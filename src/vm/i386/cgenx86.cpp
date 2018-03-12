@@ -1667,8 +1667,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
         pCode = rel32Decode(pCode+1);
 
         // NGEN case
-        if (*PTR_BYTE(pCode) == X86_INSTR_JMP_REL32) {
-            pCode = rel32Decode(pCode+1);
+        if (*PTR_BYTE(pCode) == X86_INSTR_JMP_IND) {
+            pCode = *PTR_TADDR(rel32Decode(pCode+2));
         }
 
         return pCode == (TADDR)PrecodeFixupThunk;
@@ -1684,8 +1684,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
     pCode = rel32Decode(pCode+8);
 
     // NGEN case
-    if (*PTR_BYTE(pCode) == X86_INSTR_JMP_REL32) {
-        pCode = rel32Decode(pCode+1);
+    if (*PTR_BYTE(pCode) == X86_INSTR_JMP_IND) {
+        pCode = *PTR_TADDR(rel32Decode(pCode+1));
     }
 
     return pCode == GetPreStubEntryPoint();
@@ -1725,24 +1725,9 @@ EXTERN_C PVOID STDCALL VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_V
         if (pDirectTarget != NULL)
             pCode = pDirectTarget;
 
-        INT64 oldValue = *(INT64*)pThunk;
-        BYTE* pOldValue = (BYTE*)&oldValue;
-
-        if (pOldValue[0] == X86_INSTR_CALL_REL32)
-        {
-            INT64 newValue = oldValue;
-            BYTE* pNewValue = (BYTE*)&newValue;
-            pNewValue[0] = X86_INSTR_JMP_REL32;
-
-            INT_PTR pcRelOffset = (BYTE*)pCode - &pThunk->callJmp[5];
-            *(INT32 *)(&pNewValue[1]) = (INT32) pcRelOffset;
-
-            _ASSERTE(IS_ALIGNED(pThunk, sizeof(INT64)));
-            if (EnsureWritableExecutablePagesNoThrow(pThunk, sizeof(INT64)))
-                FastInterlockCompareExchangeLong((INT64*)pThunk, newValue, oldValue);
-
-            FlushInstructionCache(GetCurrentProcess(), pThunk, 8);
-        }
+        // patch the methodtable to point to the code
+        _ASSERTE(!pMT->IsInterface());
+        pMT->SetSlot(slotNumber, pCode);
     }
 
     return PVOID(pCode);

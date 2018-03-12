@@ -1922,7 +1922,7 @@ public:
     {
         return (CorInfoHelpFunc)((DWORD)GetHandle());
     }
-   
+
 #ifdef FEATURE_READYTORUN_COMPILER
     ReadyToRunHelper GetReadyToRunHelper()
     {
@@ -2257,8 +2257,7 @@ DWORD ZapIndirectHelperThunk::SaveWorker(ZapWriter * pZapWriter)
     BYTE buffer[6];
     BYTE * p = buffer;
 
-#if defined(_TARGET_X86_)
-#elif defined(_TARGET_AMD64_)
+#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
     // jmp [helper]
     *p++ = 0xFF;
     *p++ = 0x25;
