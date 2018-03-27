@@ -1761,6 +1761,10 @@ void * ZapInfo::getHelperFtn (CorInfoHelpFunc ftnNum, void **ppIndirection)
    break;
 #endif
     case CORINFO_HELP_STRCNS_CURRENT_MODULE:
+        // For this helper, we set up arguments and call
+        // CORINFO_HELP_STRCNS in ZapLazyHelperThunk (below). The call
+        // to CORINFO_HELP_STRCNS will use an indirection cell, so the
+        // call to the lazy helper stays direct.
         break;
     default:
         dwHelper |= CORCOMPILE_HELPER_PTR;

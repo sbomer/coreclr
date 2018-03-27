@@ -9703,6 +9703,7 @@ void MethodTable::SetSlot(UINT32 slotNumber, PCODE slotCode)
     CONTRACTL {
         NOTHROW;
         GC_NOTRIGGER;
+        SO_TOLERANT;
         MODE_ANY;
     } CONTRACTL_END;
 

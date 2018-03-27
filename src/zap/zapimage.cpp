@@ -3625,13 +3625,16 @@ ZapNode * ZapImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
         case CORINFO_HELP_EE_VTABLE_FIXUP:
         case CORINFO_HELP_EE_PERSONALITY_ROUTINE:
         case CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET:
-        case CORINFO_HELP_STRCNS:
         case CORINFO_HELP_EE_EXTERNAL_FIXUP:
         case CORINFO_HELP_EE_PINVOKE_FIXUP:
         case CORINFO_HELP_EE_PRESTUB:
         case CORINFO_HELP_EE_PRECODE_FIXUP:
         case CORINFO_HELP_EE_VSD_FIXUP:
         case CORINFO_HELP_EE_REMOTING_THUNK:
+        case CORINFO_HELP_STRCNS:
+            // STRCNS is called indirectly from the ZapLazyHelperThunk
+            // that we create when the jit requests a call to
+            // STRCNS_CURRENT_MODULE.
             dwHelper |= CORCOMPILE_HELPER_PTR;
             break;
         default:

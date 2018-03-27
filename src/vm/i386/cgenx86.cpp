@@ -1727,6 +1727,11 @@ EXTERN_C PVOID STDCALL VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_V
 
         // patch the methodtable to point to the code
         _ASSERTE(!pMT->IsInterface());
+#ifdef _DEBUG
+        MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(pCode);
+        _ASSERTE(!pMD->HasNonVtableSlot());
+        _ASSERTE(!pMD->IsStatic());
+#endif
         pMT->SetSlot(slotNumber, pCode);
     }
 

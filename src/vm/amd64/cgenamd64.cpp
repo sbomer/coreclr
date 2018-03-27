@@ -962,8 +962,8 @@ EXTERN_C PCODE VirtualMethodFixupWorker(TransitionBlock * pTransitionBlock, CORC
             pCode = pDirectTarget;
 
         // patch the methodtable to point to the code
-        _ASSERTE(!pMD->HasNonVtableSlot());
         _ASSERTE(!pMT->IsInterface());
+        _ASSERTE(!pMD->HasNonVtableSlot());
         _ASSERTE(!pMD->IsStatic());
         pMT->SetSlot(slotNumber, pCode);
         
