@@ -1294,7 +1294,7 @@ ZapNode * ZapUnwindData::GetPersonalityRoutine(ZapImage * pImage)
         return pImage->GetImportTable()->GetPlacedIndirectHelperThunk(helperNum);
     }
 #endif
-    return pImage->GetHelperThunk(IsFilterFunclet() ? CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET : CORINFO_HELP_EE_PERSONALITY_ROUTINE);
+    return pImage->GetImportTable()->GetPlacedIndirectHelperThunk(IsFilterFunclet() ? CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET : CORINFO_HELP_EE_PERSONALITY_ROUTINE);
 }
 
 ZapUnwindData * ZapUnwindData::NewUnwindData(ZapWriter * pWriter, PVOID pData, SIZE_T cbSize, BOOL fIsFilterFunclet)

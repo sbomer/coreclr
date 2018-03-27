@@ -3631,6 +3631,7 @@ ZapNode * ZapImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
         case CORINFO_HELP_EE_PRESTUB:
         case CORINFO_HELP_EE_PRECODE_FIXUP:
         case CORINFO_HELP_EE_VSD_FIXUP:
+        case CORINFO_HELP_EE_REMOTING_THUNK:
             dwHelper |= CORCOMPILE_HELPER_PTR;
             break;
         default:

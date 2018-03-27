@@ -1079,7 +1079,7 @@ void DataImage::FixupModuleRVAs()
     FixupJumpStubPtr(offsetof(NGenLayoutInfo, m_pVirtualImportFixupJumpStub), CORINFO_HELP_EE_VTABLE_FIXUP);
     FixupJumpStubPtr(offsetof(NGenLayoutInfo, m_pExternalMethodFixupJumpStub), CORINFO_HELP_EE_EXTERNAL_FIXUP);
 
-    ZapNode * pFilterPersonalityRoutine = m_pZapImage->GetHelperThunkIfExists(CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET);
+    ZapNode * pFilterPersonalityRoutine = m_pZapImage->GetIndirectHelperThunkIfExists(CORINFO_HELP_EE_PERSONALITY_ROUTINE_FILTER_FUNCLET);
     if (pFilterPersonalityRoutine != NULL)
         FixupFieldToNode(m_module->m_pNGenLayoutInfo, offsetof(NGenLayoutInfo, m_rvaFilterPersonalityRoutine), pFilterPersonalityRoutine, 0, IMAGE_REL_BASED_ABSOLUTE);
 }
@@ -1353,7 +1353,7 @@ public:
             pNode, offset, IMAGE_REL_BASED_PTR);
 
         pImage->WriteReloc(&precode, offsetof(RemotingPrecode, m_callRel32),
-            pImage->GetHelperThunk(CORINFO_HELP_EE_REMOTING_THUNK), 0, IMAGE_REL_BASED_REL32);
+            pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_REMOTING_THUNK), 0, IMAGE_REL_BASED_REL32);
 
         if (m_fIsPrebound)
         {
@@ -1403,7 +1403,7 @@ void DataImage::SavePrecode(PVOID ptr, MethodDesc * pMD, PrecodeType t, ItemKind
     case PRECODE_REMOTING:
         pNode = new (GetHeap()) ZapRemotingPrecode(pMD, kind, fIsPrebound);
 
-        GetHelperThunk(CORINFO_HELP_EE_REMOTING_THUNK);
+        GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_REMOTING_THUNK);
 
         if (!fIsPrebound)
         {
