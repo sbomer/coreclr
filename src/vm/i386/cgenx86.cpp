@@ -1667,8 +1667,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
         pCode = rel32Decode(pCode+1);
 
         // NGEN case
-        if (*PTR_BYTE(pCode) == X86_INSTR_JMP_IND) {
-            pCode = *PTR_TADDR(rel32Decode(pCode+2));
+        if (*PTR_WORD(pCode) == X86_INSTR_JMP_IND) {
+            pCode = *PTR_TADDR(*PTR_INT32(pCode+2));
         }
 
         return pCode == (TADDR)PrecodeFixupThunk;
@@ -1684,8 +1684,8 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
     pCode = rel32Decode(pCode+8);
 
     // NGEN case
-    if (*PTR_BYTE(pCode) == X86_INSTR_JMP_IND) {
-        pCode = *PTR_TADDR(rel32Decode(pCode+1));
+    if (*PTR_WORD(pCode) == X86_INSTR_JMP_IND) {
+        pCode = *PTR_TADDR(*PTR_INT32(pCode+2));
     }
 
     return pCode == GetPreStubEntryPoint();

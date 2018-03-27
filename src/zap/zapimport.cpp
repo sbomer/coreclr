@@ -2261,8 +2261,14 @@ DWORD ZapIndirectHelperThunk::SaveWorker(ZapWriter * pZapWriter)
     // jmp [helper]
     *p++ = 0xFF;
     *p++ = 0x25;
-    if (pImage != NULL)
+    if (pImage != NULL) {
+#ifdef _TARGET_x86_
+        pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetHelperThunk(GetHelper()), 0, IMAGE_REL_BASED_PTR);
+#else
+        // _TARGET_AMD64_
         pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetHelperThunk(GetHelper()), 0, IMAGE_REL_BASED_REL32);
+#endif
+    }
     p += 4;
 #else
     PORTABILITY_ASSERT("ZapIndirectHelperThunk::SaveWorker");
