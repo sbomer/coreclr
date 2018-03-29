@@ -776,7 +776,7 @@ void ZapImportSectionSignatures::PlaceExternalMethodCell(ZapImport * pImport)
     else
 #endif
     {
-        pCell->SetDelayLoadHelper(m_pImage->GetHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP));
+        pCell->SetDelayLoadHelper(m_pImage->GetImportTable()->GetPlacedIndirectHelperThunk(CORINFO_HELP_EE_EXTERNAL_FIXUP));
     }
 
     // Add entry to both the cell and data sections

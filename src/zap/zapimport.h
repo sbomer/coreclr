@@ -441,6 +441,7 @@ public:
     ZapNode * GetIndirectHelperThunk(CorInfoHelpFunc helperNum);
     void PlaceIndirectHelperThunk(ZapNode * pImport);
     ZapNode * GetPlacedIndirectHelperThunk(CorInfoHelpFunc helperNum);
+
 #ifdef FEATURE_READYTORUN_COMPILER
     ZapNode * GetPlacedIndirectHelperThunk(ReadyToRunHelper helperNum, PVOID pArg = NULL, ZapNode * pCell = NULL);
     ZapNode * GetIndirectHelperThunk(ReadyToRunHelper helperNum, PVOID pArg = NULL);

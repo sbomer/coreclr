@@ -3638,6 +3638,7 @@ ZapNode * ZapImage::GetHelperThunk(CorInfoHelpFunc ftnNum)
             dwHelper |= CORCOMPILE_HELPER_PTR;
             break;
         default:
+            _ASSERTE(false);
             break;
         }
         pHelperThunk = new (GetHeap()) ZapHelperThunk(dwHelper);
