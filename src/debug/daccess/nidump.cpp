@@ -5487,8 +5487,9 @@ void NativeImageDumper::DumpHelperTable()
             int iHelper = (USHORT)dwHelper;
             _ASSERTE(iHelper < CORINFO_HELP_COUNT);
 
+            _ASSERTE(dwHelper & CORCOMPILE_HELPER_PTR);
             DisplayStartStructure( "Helper",
-                                   DataPtrToDisplay(curEntry), (dwHelper & CORCOMPILE_HELPER_PTR) ? sizeof(TADDR) : HELPER_TABLE_ENTRY_LEN,
+                                   DataPtrToDisplay(curEntry), sizeof(TADDR),
                                    ALWAYS );
 
             DisplayWriteElementUInt( "dwHelper", dwHelper, ALWAYS );
@@ -5496,7 +5497,7 @@ void NativeImageDumper::DumpHelperTable()
 
             DisplayEndStructure( ALWAYS ); //Helper
 
-            curEntry += (dwHelper & CORCOMPILE_HELPER_PTR) ? sizeof(TADDR) : HELPER_TABLE_ENTRY_LEN;
+            curEntry += sizeof(TADDR);
         }
 
         DisplayEndStructure( ALWAYS ); //HelperTable

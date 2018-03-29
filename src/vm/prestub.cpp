@@ -2306,15 +2306,13 @@ EXTERN_C PCODE STDCALL ExternalMethodFixupWorker(TransitionBlock * pTransitionBl
 }
 
 
-#if !defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
-
 //==========================================================================================
 // In NGen image, virtual slots inherited from cross-module dependencies point to jump thunks.
 // These jump thunk initially point to VirtualMethodFixupStub which transfers control here.
 // This method 'VirtualMethodFixupWorker' will patch the jump thunk to point to the actual
 // inherited method body after we have execute the precode and a stable entry point.
 //
-EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_IMPORT_THUNK *pThunk)
+EXTERN_C PCODE STDCALL VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_IMPORT_THUNK *pThunk)
 {
     CONTRACTL
     {
@@ -2325,8 +2323,13 @@ EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_I
     }
     CONTRACTL_END;
 
+#if !defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
+    PORTABILITIY_ASSERT("VirtualMethodFixupWorker");
+#endif
+
     _ASSERTE(pThisPtr != NULL);
     VALIDATEOBJECT(pThisPtr);
+    _ASSERTE(IS_ALIGNED((size_t)pThunk, sizeof(TADDR)));
 
     MethodTable * pMT = pThisPtr->GetTrueMethodTable();
 
@@ -2343,17 +2346,18 @@ EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_I
             pCode = pDirectTarget;
         }
 
-        // Patch the thunk to the actual method body
-        if (EnsureWritableExecutablePagesNoThrow(&pThunk->m_pTarget, sizeof(pThunk->m_pTarget)))
-            pThunk->m_pTarget = pCode;
-    }
-#if defined(_TARGET_ARM_)
-    // The target address should have the thumb bit set
-    _ASSERTE(pCode & THUMB_CODE);
+        // Patch the methodtable to point to the cedo
+        _ASSERTE(!pMT->IsInterface());
+#ifdef _DEBUG
+        MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(pCode);
+        _ASSERTE(!pMD->HasNonVtableSlot());
+        _ASSERTE(!pMD->IsStatic());
 #endif
+        pMT->SetSlot(slotNumber, pCode);
+    }
+
     return pCode;
 }
-#endif // !defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
 
 #ifdef FEATURE_READYTORUN
 

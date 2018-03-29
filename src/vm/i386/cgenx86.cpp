@@ -1691,54 +1691,6 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
     return pCode == GetPreStubEntryPoint();
 }
 
-//==========================================================================================
-// In NGen image, virtual slots inherited from cross-module dependencies point to jump thunks.
-// These jump thunk initially point to VirtualMethodFixupStub which transfers control here.
-// This method 'VirtualMethodFixupWorker' will patch the jump thunk to point to the actual
-// inherited method body after we have execute the precode and a stable entry point.
-//
-EXTERN_C PVOID STDCALL VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_IMPORT_THUNK *pThunk)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_COOPERATIVE;
-        ENTRY_POINT;
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(pThisPtr != NULL);
-    VALIDATEOBJECT(pThisPtr);
-
-    MethodTable * pMT = pThisPtr->GetTrueMethodTable();
-
-    WORD slotNumber = pThunk->slotNum;
-    _ASSERTE(slotNumber != (WORD)-1);
-
-    PCODE pCode = pMT->GetRestoredSlot(slotNumber);
-
-    if (!DoesSlotCallPrestub(pCode))
-    {
-        // Skip fixup precode jump for better perf
-        PCODE pDirectTarget = Precode::TryToSkipFixupPrecode(pCode);
-        if (pDirectTarget != NULL)
-            pCode = pDirectTarget;
-
-        // patch the methodtable to point to the code
-        _ASSERTE(!pMT->IsInterface());
-#ifdef _DEBUG
-        MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(pCode);
-        _ASSERTE(!pMD->HasNonVtableSlot());
-        _ASSERTE(!pMD->IsStatic());
-#endif
-        pMT->SetSlot(slotNumber, pCode);
-    }
-
-    return PVOID(pCode);
-}
-
-
 #ifdef FEATURE_READYTORUN
 
 //

@@ -94,7 +94,7 @@ NESTED_ENTRY VirtualMethodFixupStub, _TEXT, ProcessCLRException
 
         PROLOG_WITH_TRANSITION_BLOCK 0, 8, rdx
 
-        lea             rcx, [rsp + __PWTB_TransitionBlock] ; pTransitionBlock
+        ;; rcx contains the this pointer
         sub             rdx, 5                              ; pThunk
         call            VirtualMethodFixupWorker
 

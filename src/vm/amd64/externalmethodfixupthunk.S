@@ -87,7 +87,7 @@ NESTED_ENTRY VirtualMethodFixupStub, _TEXT, NoHandler
 
         PROLOG_WITH_TRANSITION_BLOCK 0, 8, rsi, 0, 0
 
-        lea             rdi, [rsp + __PWTB_TransitionBlock] // pTransitionBlock
+        // rcx contains the this pointer
         sub             rsi, 5                              // pThunk
         call            C_FUNC(VirtualMethodFixupWorker)
 

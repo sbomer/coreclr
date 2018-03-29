@@ -1676,7 +1676,8 @@ void ZapColdCodeMap::Save(ZapWriter* pZapWriter)
 
 DWORD ZapHelperThunk::GetSize()
 {
-    return (m_dwHelper & CORCOMPILE_HELPER_PTR) ? sizeof(TADDR) : HELPER_TABLE_ENTRY_LEN;
+    _ASSERTE(m_dwHelper & CORCOMPILE_HELPER_PTR);
+    return sizeof(TADDR);
 }
 
 void ZapHelperThunk::Save(ZapWriter * pZapWriter)
