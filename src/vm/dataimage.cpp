@@ -750,7 +750,7 @@ FORCEINLINE static CorCompileSection GetSectionForNodeType(ZapNodeType type)
 
     case NodeTypeForItemKind(DataImage::ITEM_DICTIONARY):
     case NodeTypeForItemKind(DataImage::ITEM_VTABLE_CHUNK):
-        return CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY;
+        return CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY_REMOVEME;
 
     // SECTION_CLASS_COLD
     case NodeTypeForItemKind(DataImage::ITEM_PARAM_TYPEDESC):

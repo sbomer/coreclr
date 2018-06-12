@@ -332,7 +332,7 @@ void ZapImage::AllocateVirtualSections()
         m_pPreloadSections[CORCOMPILE_SECTION_RVA_STATICS_HOT] = NewVirtualSection(pDataSection, IBCProfiledSection | HotRange | RVAStaticsSection);
 
         m_pDelayLoadInfoTableSection[ZapImportSectionType_Eager] = NewVirtualSection(pDataSection, IBCUnProfiledSection | HotRange | DelayLoadInfoTableEagerSection, sizeof(TADDR));
-        m_pPreloadSections[CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY] = NewVirtualSection(pDataSection, IBCProfiledSection | WarmRange | WriteableDataSection, sizeof(TADDR));
+        m_pPreloadSections[CORCOMPILE_SECTION_READONLY_VCHUNKS_AND_DICTIONARY_REMOVEME] = NewVirtualSection(pDataSection, IBCProfiledSection | WarmRange | WriteableDataSection, sizeof(TADDR)); // remove this once chunks are moved to a different section
 
         //
         // Allocate dynamic info tables
@@ -398,6 +398,7 @@ void ZapImage::AllocateVirtualSections()
         }
     }
 
+    // remove this whole block once Vitek's changes are in.
     // No RWX pages in ready to run images
     if (!IsReadyToRunCompilation())
     {

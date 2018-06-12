@@ -1667,6 +1667,7 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
         pCode = rel32Decode(pCode+1);
 
         // NGEN case
+        // where the target of the call is a lazy helper thunk, which does an indirect jump to the helper
         if (*PTR_WORD(pCode) == X86_INSTR_JMP_IND) {
             pCode = *PTR_TADDR(*PTR_INT32(pCode+2));
         }

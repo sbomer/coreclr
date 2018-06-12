@@ -2270,6 +2270,20 @@ DWORD ZapIndirectHelperThunk::SaveWorker(ZapWriter * pZapWriter)
 #endif
     }
     p += 4;
+#elif defined(_TARGET_ARM_)
+    // mov r4, [helper]
+    MovRegImm(p, 4);
+    if (pImage != NULL)
+        pImage->WriteReloc(buffer, (int)(p - buffer), pImage->GetHelperThunk(GetHelper()), IMAGE_REL_BASED_THUMB_MOV32);
+    p += 8;
+
+    // ldr r4, [r4]
+    *(WORD *)p = 0x6824;
+    p += 2;
+
+    // bx r4
+    *(WORD *)p = 0x4720;
+    p += 2;
 #else
     PORTABILITY_ASSERT("ZapIndirectHelperThunk::SaveWorker");
 #endif

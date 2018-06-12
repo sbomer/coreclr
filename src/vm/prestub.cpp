@@ -1777,7 +1777,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         BOOL fSharedOrDynamicFCallImpl;
         pCode = ECall::GetFCallImpl(this, &fSharedOrDynamicFCallImpl);
 
-        if (fSharedOrDynamicFCallImpl)
+        if (fSharedOrDynamicFCallImpl || (pMT->IsInterface() && !IsStatic()))
         {
             // Fake ctors share one implementation that has to be wrapped by prestub
             GetOrCreatePrecode();
@@ -1954,6 +1954,9 @@ static PCODE PatchNonVirtualExternalMethod(MethodDesc * pMD, PCODE pCode, PTR_CO
 
     if (pImportSection->Flags & CORCOMPILE_IMPORT_FLAGS_CODE)
     {
+        // This is only ever called from ExternalMethodFixupWorker,
+        // which should be patching indirection cells.
+        _ASSERTE(false);g
         CORCOMPILE_EXTERNAL_METHOD_THUNK * pThunk = (CORCOMPILE_EXTERNAL_METHOD_THUNK *)pIndirection;
 
 #if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)

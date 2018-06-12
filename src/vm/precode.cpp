@@ -336,7 +336,7 @@ SIZE_T Precode::SizeOfTemporaryEntryPoints(PrecodeType t, bool preallocateJumpSt
     return count * oneSize;
 }
 
-SIZE_T Precode::SizeOfTemporaryEntryPoints(TADDR temporaryEntryPoints, int count)
+ SIZE_T Precode::SizeOfTemporaryEntryPoints(TADDR temporaryEntryPoints, int count)
 {
     WRAPPER_NO_CONTRACT;
     SUPPORTS_DAC;
@@ -358,9 +358,9 @@ Precode* Precode::Allocate(PrecodeType t, MethodDesc* pMD,
                            LoaderAllocator *  pLoaderAllocator, 
                            AllocMemTracker *  pamTracker)
 {
-    CONTRACTL
+    Contractl
     {
-        THROWS;
+        Throws;
         GC_NOTRIGGER;
         MODE_ANY;
     }
@@ -831,6 +831,7 @@ void Precode::SaveChunk::Flush(DataImage * image)
 
     // Flush the remaining items
     SaveFixupPrecodeChunk(image, &(m_rgPendingChunk[i-pendingCount]), pendingCount, pendingKind);
+    
 #endif // HAS_FIXUP_PRECODE_CHUNKS
 }
 

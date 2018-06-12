@@ -598,6 +598,7 @@ struct CORCOMPILE_CODE_MANAGER_ENTRY
         // The target address - initially, this will point to ExternalMethodFixupStub.
         // Post patchup by the stub, it will point to the actual method body.
         PCODE               m_pTarget;
+        DWORD               m_relptrIndirectionCell; // Relative pointer to indirection cell
     };
 	
 #elif defined(_TARGET_ARM64_)
@@ -1326,7 +1327,7 @@ class ICorCompilePreloader
     CORCOMPILE_SECTION(READONLY_HOT) \
     CORCOMPILE_SECTION(READONLY_WARM) \
     CORCOMPILE_SECTION(READONLY_COLD) \
-    CORCOMPILE_SECTION(READONLY_VCHUNKS_AND_DICTIONARY) \
+    CORCOMPILE_SECTION(READONLY_VCHUNKS_AND_DICTIONARY_REMOVEME) \
     CORCOMPILE_SECTION(CLASS_COLD) \
     CORCOMPILE_SECTION(CROSS_DOMAIN_INFO) \
     CORCOMPILE_SECTION(METHOD_PRECODE_COLD) \

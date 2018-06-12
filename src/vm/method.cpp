@@ -2682,7 +2682,7 @@ void MethodDesc::Save(DataImage *image)
                                 DataImage::ITEM_METHOD_DESC_COLD_WRITEABLE);
 
 #ifdef HAS_NDIRECT_IMPORT_PRECODE
-        if (!pNMD->MarshalingRequired())
+        if (!pNMD->MarshalingRequired())p
         {
             // import thunk is only needed if the P/Invoke is inlinable
 #if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)  
